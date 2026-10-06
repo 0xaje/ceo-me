@@ -58,3 +58,44 @@ npm run dev
 ```
 
 The terminal harness is intentionally the first transport. Photon is added only after the core state transition is proven locally.
+
+
+## Photon transport
+
+CEO-002 adds the real hosted iMessage transport through Photon Spectrum.
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Set the two Photon project credentials in your shell:
+
+```powershell
+$env:PROJECT_ID="your-project-id"
+$env:PROJECT_SECRET="your-project-secret"
+npm run photon
+```
+
+Then send `ping` to the Photon iMessage line. A successful transport test replies:
+
+```text
+CEO Me is online.
+```
+
+After that, send a real decision such as:
+
+```text
+Should I add a dashboard and more features before I record the demo?
+```
+
+The response is generated through the same persisted CEO Me service used by the local harness.
+
+### Security
+
+Never commit Photon credentials. The repository ignores local `.env` files and contains only `.env.example`.
+
+### CEO-002 boundary
+
+At this stage Photon proves real inbound iMessage + real reply + persisted decision. Proactive iMessage follow-up is wired only after the line/routing identity is verified; we do not fabricate outbound scheduling before that.
