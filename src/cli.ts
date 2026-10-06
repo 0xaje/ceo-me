@@ -11,8 +11,26 @@ const service = new CeoMeService(store);
 const userId = "local-user";
 
 const due = await collectDueFollowUps(service);
+
 for (const event of due) {
   console.log("\n" + event.message + "\n");
+
+  const response = (await rl.question("OUTCOME: ")).trim().toLowerCase();
+
+  if (response === "done") {
+    await service.recordOutcome(event.commitmentId, "completed", "User reported DONE.");
+    console.log("\nMISSION CLOSED\nOutcome recorded: COMPLETED\n");
+  } else if (response === "blocked") {
+    const note = await rl.question("What blocked you? ");
+    await service.recordOutcome(event.commitmentId, "blocked", note.trim() || undefined);
+    console.log("\nMISSION UPDATED\nOutcome recorded: BLOCKED\n");
+  } else if (response === "abandoned") {
+    const note = await rl.question("Why did you abandon it? ");
+    await service.recordOutcome(event.commitmentId, "abandoned", note.trim() || undefined);
+    console.log("\nMISSION CLOSED\nOutcome recorded: ABANDONED\n");
+  } else {
+    console.log("\nOutcome not recorded. Use DONE, BLOCKED, or ABANDONED next time.\n");
+  }
 }
 
 const message = await rl.question("YOU: ");
