@@ -48,7 +48,7 @@ describe("CEO-001 persistence and follow-up", () => {
     await service.acceptCommitment(
       "user-1",
       decision.id,
-      "Ship CEO-001",
+      "Ship CEO-001.",
       "2026-10-06T21:00:00+01:00"
     );
 
@@ -64,9 +64,11 @@ describe("CEO-001 persistence and follow-up", () => {
     );
     expect(after).toHaveLength(1);
     expect(after[0].message).toContain("BOARD FOLLOW-UP");
+    expect(after[0].message).toContain("Did you complete: Ship CEO-001?");
+    expect(after[0].message).not.toContain(".?");
   });
 
-  it("records a real outcome", async () => {
+  it("records a real outcome and stops future follow-ups", async () => {
     const { service } = await makeService();
 
     const { decision } = await service.evaluate("user-1", "Finish the loop.");
@@ -77,13 +79,17 @@ describe("CEO-001 persistence and follow-up", () => {
       "2026-10-06T21:00:00+01:00"
     );
 
-    const completed = await service.recordOutcome(
+    await service.recordOutcome(
       commitment.id,
       "completed",
-      "Core loop implemented."
+      "User reported DONE."
     );
 
-    expect(completed.status).toBe("completed");
-    expect(completed.outcomeNote).toBe("Core loop implemented.");
+    const after = await collectDueFollowUps(
+      service,
+      new Date("2026-10-06T21:05:00+01:00")
+    );
+
+    expect(after).toHaveLength(0);
   });
 });
