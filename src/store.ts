@@ -1,27 +1,70 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type {
   CommitmentRecord,
   CommitmentStatus,
   DecisionRecord
 } from "./domain.js";
 
-export class InMemoryStore {
-  private decisions = new Map<string, DecisionRecord>();
-  private commitments = new Map<string, CommitmentRecord>();
+type StoreSnapshot = {
+  decisions: DecisionRecord[];
+  commitments: CommitmentRecord[];
+};
 
-  createDecision(input: Omit<DecisionRecord, "id" | "createdAt">): DecisionRecord {
+export interface CeoStore {
+  createDecision(input: Omit<DecisionRecord, "id" | "createdAt">): Promise<DecisionRecord>;
+  createCommitment(
+    input: Omit<CommitmentRecord, "id" | "status" | "createdAt" | "updatedAt">
+  ): Promise<CommitmentRecord>;
+  updateCommitmentStatus(
+    id: string,
+    status: CommitmentStatus,
+    outcomeNote?: string
+  ): Promise<CommitmentRecord>;
+  getCommitment(id: string): Promise<CommitmentRecord | undefined>;
+  listCommitmentsForUser(userId: string): Promise<CommitmentRecord[]>;
+  listDueCommitments(now: Date): Promise<CommitmentRecord[]>;
+}
+
+export class JsonFileStore implements CeoStore {
+  constructor(private readonly filePath: string) {}
+
+  private async load(): Promise<StoreSnapshot> {
+    try {
+      const raw = await readFile(this.filePath, "utf8");
+      return JSON.parse(raw) as StoreSnapshot;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return { decisions: [], commitments: [] };
+      }
+      throw error;
+    }
+  }
+
+  private async save(snapshot: StoreSnapshot): Promise<void> {
+    await mkdir(dirname(this.filePath), { recursive: true });
+    await writeFile(this.filePath, JSON.stringify(snapshot, null, 2) + "\n", "utf8");
+  }
+
+  async createDecision(
+    input: Omit<DecisionRecord, "id" | "createdAt">
+  ): Promise<DecisionRecord> {
+    const snapshot = await this.load();
     const record: DecisionRecord = {
       ...input,
       id: randomUUID(),
       createdAt: new Date().toISOString()
     };
-    this.decisions.set(record.id, record);
+    snapshot.decisions.push(record);
+    await this.save(snapshot);
     return record;
   }
 
-  createCommitment(
+  async createCommitment(
     input: Omit<CommitmentRecord, "id" | "status" | "createdAt" | "updatedAt">
-  ): CommitmentRecord {
+  ): Promise<CommitmentRecord> {
+    const snapshot = await this.load();
     const now = new Date().toISOString();
     const record: CommitmentRecord = {
       ...input,
@@ -30,36 +73,49 @@ export class InMemoryStore {
       createdAt: now,
       updatedAt: now
     };
-    this.commitments.set(record.id, record);
+    snapshot.commitments.push(record);
+    await this.save(snapshot);
     return record;
   }
 
-  updateCommitmentStatus(
+  async updateCommitmentStatus(
     id: string,
     status: CommitmentStatus,
     outcomeNote?: string
-  ): CommitmentRecord {
-    const current = this.commitments.get(id);
-    if (!current) {
+  ): Promise<CommitmentRecord> {
+    const snapshot = await this.load();
+    const index = snapshot.commitments.findIndex((item) => item.id === id);
+
+    if (index === -1) {
       throw new Error(`Unknown commitment: ${id}`);
     }
 
     const updated: CommitmentRecord = {
-      ...current,
+      ...snapshot.commitments[index],
       status,
       outcomeNote,
       updatedAt: new Date().toISOString()
     };
 
-    this.commitments.set(id, updated);
+    snapshot.commitments[index] = updated;
+    await this.save(snapshot);
     return updated;
   }
 
-  getCommitment(id: string): CommitmentRecord | undefined {
-    return this.commitments.get(id);
+  async getCommitment(id: string): Promise<CommitmentRecord | undefined> {
+    const snapshot = await this.load();
+    return snapshot.commitments.find((item) => item.id === id);
   }
 
-  listCommitmentsForUser(userId: string): CommitmentRecord[] {
-    return [...this.commitments.values()].filter((item) => item.userId === userId);
+  async listCommitmentsForUser(userId: string): Promise<CommitmentRecord[]> {
+    const snapshot = await this.load();
+    return snapshot.commitments.filter((item) => item.userId === userId);
+  }
+
+  async listDueCommitments(now: Date): Promise<CommitmentRecord[]> {
+    const snapshot = await this.load();
+    return snapshot.commitments.filter(
+      (item) => item.status === "pending" && new Date(item.dueAt).getTime() <= now.getTime()
+    );
   }
 }
