@@ -1,13 +1,13 @@
 import { createDeterministicVerdict } from "./board.js";
-import { InMemoryStore } from "./store.js";
+import type { CeoStore } from "./store.js";
 
 export class CeoMeService {
-  constructor(private readonly store: InMemoryStore) {}
+  constructor(private readonly store: CeoStore) {}
 
-  evaluate(userId: string, input: string) {
+  async evaluate(userId: string, input: string) {
     const board = createDeterministicVerdict(input);
 
-    const decision = this.store.createDecision({
+    const decision = await this.store.createDecision({
       userId,
       input,
       seats: board.seats,
@@ -18,7 +18,7 @@ export class CeoMeService {
     return { decision, board };
   }
 
-  acceptCommitment(
+  async acceptCommitment(
     userId: string,
     decisionId: string,
     commitment: string,
@@ -32,11 +32,15 @@ export class CeoMeService {
     });
   }
 
-  recordOutcome(
+  async recordOutcome(
     commitmentId: string,
     outcome: "completed" | "blocked" | "abandoned",
     note?: string
   ) {
     return this.store.updateCommitmentStatus(commitmentId, outcome, note);
+  }
+
+  async dueCommitments(now = new Date()) {
+    return this.store.listDueCommitments(now);
   }
 }
