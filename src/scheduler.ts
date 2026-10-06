@@ -7,6 +7,10 @@ export type FollowUpEvent = {
   message: string;
 };
 
+function cleanCommitmentLabel(value: string): string {
+  return value.trim().replace(/[.!?]+$/, "");
+}
+
 export async function collectDueFollowUps(
   service: CeoMeService,
   now = new Date()
@@ -18,7 +22,7 @@ export async function collectDueFollowUps(
     userId: commitment.userId,
     message:
       "BOARD FOLLOW-UP\n\nWe voted.\nYou agreed.\n\nDid you complete: " +
-      commitment.commitment +
+      cleanCommitmentLabel(commitment.commitment) +
       "?\n\nReply DONE, BLOCKED, or ABANDONED."
   }));
 }
