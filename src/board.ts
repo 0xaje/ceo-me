@@ -195,8 +195,17 @@ export function validateBoardOutput(
 /**
  * Deterministic Baseline Board Reasoning
  */
+/**
+ * Deterministic Baseline Board Reasoning Engine
+ * Separates specific/high-confidence rules from general fallback.
+ */
 export class DeterministicBoardEngine implements BoardReasoningEngine {
-  async generateVerdict(input: BoardReasoningInput): Promise<BoardVerdict> {
+  /**
+   * High-confidence deterministic rule detection.
+   * Returns a specific BoardVerdict immediately if a known pattern matches confidently,
+   * or null if the dilemma is unfamiliar and should be considered by the LLM.
+   */
+  tryGenerateSpecificVerdict(input: BoardReasoningInput): BoardVerdict | null {
     const text = input.userMessage.toLowerCase();
     const seats = input.selectedSeats;
 
@@ -229,7 +238,25 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
       };
     }
 
-    // 3. Buying laptop / equipment / spending vs waiting
+    // 3. Limited money / resource allocation tradeoff (e.g. conference vs runway, course vs debt, marketing vs operating cash)
+    if (
+      /runway|conference|ticket|afford both|cannot afford both|can't afford both|either .* or .* runway|course vs|marketing spend vs/.test(text) ||
+      ((/money|cash|fund|budget/.test(text)) && (/runway|conference|course|travel|marketing/.test(text)) && (/either|choose|both|afford/.test(text)))
+    ) {
+      return {
+        seats,
+        perspectives: [
+          { seat: "cfo", opinion: "Runway is oxygen and downside protection. Speculative networking tickets evaporate if you run out of cash." },
+          { seat: "operator", opinion: "A month of runway gives you uninterrupted execution time. A conference only delivers value if you have an active deal on the table." },
+          { seat: "future_you", opinion: "Opportunity cost is real: you cannot leverage career networking if your core project dies from zero runway." }
+        ],
+        verdict: "Keep the month of runway unless the conference gives you a specific high-value opportunity you can name today.",
+        firstAction: "Write down the exact person, deal, or lead the conference unlocks; if none, protect the runway.",
+        suggestedCommitment: "Decide today whether the conference has one concrete opportunity worth sacrificing runway"
+      };
+    }
+
+    // 4. Buying laptop / equipment / spending vs waiting
     if (/buy|laptop|gear|purchase|wait|upgrade/.test(text)) {
       return {
         seats,
@@ -244,7 +271,7 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
       };
     }
 
-    // 4. Family / personal commitment vs unfinished project
+    // 5. Family / personal commitment vs unfinished project
     if (/family|wife|husband|kids|dinner|stop working|promised/.test(text)) {
       return {
         seats,
@@ -258,7 +285,7 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
       };
     }
 
-    // 5. Polish / creative vs shipping / operator
+    // 6. Polish / creative vs shipping / operator
     if (/polish|perfection|clean up|design vs ship|creative vs operator|good enough/.test(text)) {
       return {
         seats,
@@ -272,7 +299,7 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
       };
     }
 
-    // 6. Scope expansion / feature bloat
+    // 7. Scope expansion / feature bloat
     if (/dashboard|calendar integration|email integration|more features|add features|expand|settings/.test(text)) {
       return {
         seats,
@@ -286,22 +313,38 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
       };
     }
 
-    // 7. Default General Muse Verdict
+    return null;
+  }
+
+  /**
+   * General fallback for unfamiliar dilemmas where no specific rule matched.
+   * Sharp and tradeoff-focused without generic consultant filler.
+   */
+  generateGeneralFallback(input: BoardReasoningInput): BoardVerdict {
+    const seats = input.selectedSeats;
     return {
       seats,
       perspectives: [
-        { seat: "operator", opinion: "Overthinking is delay dressed as planning. Find the smallest irreversible next step." },
-        { seat: "future_you", opinion: "Clarity follows action, not debate." }
+        { seat: "operator", opinion: "Overthinking is delay dressed as planning. Find the single irreversible next step." },
+        { seat: "future_you", opinion: "Clarity comes from shipping concrete decisions, not endless deliberation." }
       ],
-      verdict: "Reduce this to one decision and act on the smallest irreversible next step.",
-      firstAction: "Write the single outcome you want, then take one concrete action toward it.",
-      suggestedCommitment: "Execute the single smallest next step today"
+      verdict: "Choose the option that preserves maximum future optionality and execution velocity.",
+      firstAction: "Define the single non-negotiable outcome you need, then execute the first step immediately.",
+      suggestedCommitment: "Execute the critical path action before moving to secondary tasks"
     };
+  }
+
+  async generateVerdict(input: BoardReasoningInput): Promise<BoardVerdict> {
+    const specific = this.tryGenerateSpecificVerdict(input);
+    if (specific) {
+      return specific;
+    }
+    return this.generateGeneralFallback(input);
   }
 }
 
 /**
- * Dynamic Board Engine supporting Ollama & Cloud LLM with automatic fallback
+ * Dynamic Board Engine supporting Deterministic Fast Path, Ollama single-shot, and General Fallback.
  */
 export class DynamicBoardEngine implements BoardReasoningEngine {
   private fallback = new DeterministicBoardEngine();
@@ -311,11 +354,20 @@ export class DynamicBoardEngine implements BoardReasoningEngine {
   ) {}
 
   async generateVerdict(input: BoardReasoningInput): Promise<BoardVerdict> {
-    if (!this.provider) {
-      console.log("[BOARD] deterministic");
-      return this.fallback.generateVerdict(input);
+    // 1. High-confidence deterministic fast path: return immediately without calling LLM
+    const fastVerdict = this.fallback.tryGenerateSpecificVerdict(input);
+    if (fastVerdict) {
+      console.log("[BOARD] deterministic fast path");
+      return fastVerdict;
     }
 
+    // 2. If no provider is available, use general deterministic fallback
+    if (!this.provider) {
+      console.log("[BOARD] deterministic fallback");
+      return this.fallback.generateGeneralFallback(input);
+    }
+
+    // 3. Unfamiliar dilemma: attempt single-shot Ollama generation
     const systemPrompt =
       "You are CEO Me, a sharp, decisive personal board of directors. You do NOT sound like a corporate consultant, therapist, or life coach.\n" +
       "Think strictly in real tradeoffs:\n" +
@@ -361,6 +413,6 @@ export class DynamicBoardEngine implements BoardReasoningEngine {
 
     console.log(`[BOARD] ${this.provider.providerName} invalid in ${elapsed}ms -> fallback`);
     console.log("[BOARD] fallback");
-    return this.fallback.generateVerdict(input);
+    return this.fallback.generateGeneralFallback(input);
   }
 }

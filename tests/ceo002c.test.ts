@@ -289,4 +289,91 @@ describe("CEO-002C Local Ollama Reasoning & Provider Adapter", () => {
       expect(b.suggestedCommitment).toContain("Deploy current build");
     });
   });
+
+  describe("Deterministic Fast Path & Tradeoff Engine", () => {
+    it("A. Client/weekend dilemma uses deterministic fast path without calling Ollama", async () => {
+      let providerCalled = false;
+      const trackingProvider: StructuredReasoningProvider = {
+        providerName: "tracking-ollama",
+        async generateStructured() {
+          providerCalled = true;
+          return null;
+        }
+      };
+
+      const boardEngine = new DynamicBoardEngine(trackingProvider);
+      const res = await boardEngine.generateVerdict({
+        userMessage: "I have a client offering me more money, but they want me available every weekend. Should I take it?",
+        selectedSeats: ["cfo", "operator", "future_you"]
+      });
+
+      expect(providerCalled).toBe(false);
+      expect(res.verdict).toContain("Take the client only if weekend work is premium-priced and capped.");
+    });
+
+    it("B. Conference/runway dilemma uses deterministic fast path without calling Ollama", async () => {
+      let providerCalled = false;
+      const trackingProvider: StructuredReasoningProvider = {
+        providerName: "tracking-ollama",
+        async generateStructured() {
+          providerCalled = true;
+          return null;
+        }
+      };
+
+      const boardEngine = new DynamicBoardEngine(trackingProvider);
+      const res = await boardEngine.generateVerdict({
+        userMessage: "I have enough money for either a conference ticket that could help my career or one month of runway for my side project. I cannot afford both. What should I do?",
+        selectedSeats: ["cfo", "operator", "future_you"]
+      });
+
+      expect(providerCalled).toBe(false);
+      expect(res.verdict).toContain("Keep the month of runway unless the conference gives you a specific high-value opportunity you can name today.");
+      expect(res.firstAction).toContain("Write down the exact person");
+      expect(res.suggestedCommitment).toContain("Decide today whether the conference has one concrete opportunity worth sacrificing runway");
+    });
+
+    it("C. A genuinely unfamiliar dilemma can still reach Ollama", async () => {
+      let providerCalled = false;
+      const trackingProvider: StructuredReasoningProvider = {
+        providerName: "tracking-ollama",
+        async generateStructured<T>(_sys: string, _inp: unknown, validator: (v: unknown) => T | null) {
+          providerCalled = true;
+          return validator({
+            perspectives: [{ seat: "operator", opinion: "Adopt the rescue pet." }],
+            verdict: "Adopt the pet if your daily schedule accommodates care routines.",
+            firstAction: "Review daily walking schedule.",
+            suggestedCommitment: "Review and schedule daily walking routines this Saturday"
+          });
+        }
+      };
+
+      const boardEngine = new DynamicBoardEngine(trackingProvider);
+      const res = await boardEngine.generateVerdict({
+        userMessage: "Should I adopt a rescue dog from the local shelter tomorrow?",
+        selectedSeats: ["operator", "future_you"]
+      });
+
+      expect(providerCalled).toBe(true);
+      expect(res.verdict).toContain("Adopt the pet");
+    });
+
+    it("D. Ollama failure still reaches general deterministic fallback", async () => {
+      const failingProvider: StructuredReasoningProvider = {
+        providerName: "failing-ollama",
+        async generateStructured() {
+          return null;
+        }
+      };
+
+      const boardEngine = new DynamicBoardEngine(failingProvider);
+      const res = await boardEngine.generateVerdict({
+        userMessage: "Should I paint my office walls terracotta or sage green?",
+        selectedSeats: ["operator", "future_you"]
+      });
+
+      expect(res.verdict).toBe("Choose the option that preserves maximum future optionality and execution velocity.");
+      expect(res.suggestedCommitment).toBe("Execute the critical path action before moving to secondary tasks");
+    });
+  });
 });
