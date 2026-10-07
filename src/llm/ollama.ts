@@ -64,9 +64,10 @@ export class OllamaReasoningProvider implements StructuredReasoningProvider {
           ],
           format: "json",
           stream: false,
+          keep_alive: "60m",
           options: {
             temperature: 0.1,
-            num_predict: 2048
+            num_predict: 350
           }
         })
       });
