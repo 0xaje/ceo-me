@@ -1,12 +1,18 @@
-import { createDeterministicVerdict } from "./board.js";
+import {
+  DynamicBoardEngine,
+  selectBoard,
+  type BoardReasoningEngine
+} from "./board.js";
 import { formatDeadline } from "./deadline.js";
 import type {
   CommitmentRecord,
-  ConversationState,
   DecisionRecord,
   UserSessionRecord
 } from "./domain.js";
-import { classifyIntent } from "./router.js";
+import {
+  TwoLayerIntentRouter,
+  type IntentClassifier
+} from "./router.js";
 import type { CeoStore } from "./store.js";
 
 export interface ProcessMessageResult {
@@ -18,10 +24,18 @@ export interface ProcessMessageResult {
 }
 
 export class CeoMeService {
-  constructor(private readonly store: CeoStore) {}
+  constructor(
+    private readonly store: CeoStore,
+    private readonly boardEngine: BoardReasoningEngine = new DynamicBoardEngine(),
+    private readonly router: IntentClassifier = new TwoLayerIntentRouter()
+  ) {}
 
   async evaluate(userId: string, input: string) {
-    const board = createDeterministicVerdict(input);
+    const seats = selectBoard(input);
+    const board = await this.boardEngine.generateVerdict({
+      userMessage: input,
+      selectedSeats: seats
+    });
 
     const decision = await this.store.createDecision({
       userId,
@@ -98,7 +112,6 @@ export class CeoMeService {
 
   /**
    * The core conversational processor
-   * Handles natural language messages according to the conversation state machine.
    */
   async processMessage(
     userId: string,
@@ -116,8 +129,33 @@ export class CeoMeService {
       activeDecision = await this.store.getDecision(session.activeDecisionId);
     }
 
-    // Classify intent
-    const classified = classifyIntent(text, {
+    // STATE: AWAITING_ABANDON_REASON -> Capture user's abandonment explanation
+    if (session.conversationState === "AWAITING_ABANDON_REASON") {
+      const abandonReason = text.trim();
+      let updatedCommitment: CommitmentRecord | undefined;
+
+      if (session.activeCommitmentId) {
+        updatedCommitment = await this.store.updateCommitmentStatus(
+          session.activeCommitmentId,
+          "abandoned",
+          abandonReason
+        );
+      }
+
+      session.conversationState = "ABANDONED";
+      session.activeCommitmentId = undefined;
+      session.activeDecisionId = undefined;
+      await this.store.saveUserSession(session);
+
+      return {
+        reply: "Recorded.\n\nMission dropped. I'll remember the reasoning for next time.",
+        session,
+        commitment: updatedCommitment
+      };
+    }
+
+    // Classify intent using the two-layer router
+    const classified = await this.router.classify(text, {
       conversationState: session.conversationState,
       hasActiveDecision: !!session.activeDecisionId,
       hasActiveCommitment: !!session.activeCommitmentId,
@@ -140,6 +178,17 @@ export class CeoMeService {
         answer = "Because presentation, tone, and brand perception matter here.";
       } else if (lower.includes("operator")) {
         answer = "Because someone has to keep scope tight and ensure execution.";
+      } else if (
+        lower.includes("what exactly did i agree to") ||
+        lower.includes("what did i commit to") ||
+        lower.includes("what was my task")
+      ) {
+        if (activeCommitment) {
+          const dueFormatted = formatDeadline(activeCommitment.dueAt);
+          answer = `You agreed to: "${activeCommitment.commitment}". Due at ${dueFormatted}.`;
+        } else {
+          answer = "You don't currently have an active commitment.";
+        }
       } else {
         answer =
           activeDecision?.verdict
@@ -160,12 +209,9 @@ export class CeoMeService {
           session
         };
       }
-      if (session.conversationState === "COMMITMENT_ACTIVE") {
-        const dueFormatted = activeCommitment
-          ? formatDeadline(activeCommitment.dueAt)
-          : "";
+      if (session.conversationState === "COMMITMENT_ACTIVE" || session.conversationState === "BLOCKED") {
         return {
-          reply: `${answer}\n\nYour active commitment: "${activeCommitment?.commitment}" (Due ${dueFormatted}).`,
+          reply: answer,
           session
         };
       }
@@ -191,7 +237,6 @@ export class CeoMeService {
           activeDecision?.firstAction ||
           "Execute first action";
 
-        // If user provided a deadline directly in acceptance (e.g. "yes, by 8 tonight")
         if (classified.extractedDeadline) {
           const commitment = await this.store.createCommitment({
             userId,
@@ -214,7 +259,6 @@ export class CeoMeService {
           };
         }
 
-        // Acceptance without deadline: ask for deadline
         session.conversationState = "AWAITING_DEADLINE";
         session.pendingCommitmentDraft = draft;
         await this.store.saveUserSession(session);
@@ -250,7 +294,6 @@ export class CeoMeService {
     if (session.conversationState === "AWAITING_DEADLINE") {
       if (classified.intent === "SET_DEADLINE") {
         if (!classified.extractedDeadline) {
-          // Ambiguous
           return {
             reply: classified.extractedText || "What time should I use?",
             session
@@ -279,19 +322,67 @@ export class CeoMeService {
       }
     }
 
-    // STATE: COMMITMENT_ACTIVE / FOLLOW_UP_DUE / AWAITING_OUTCOME / BLOCKED
+    // STATE: COMMITMENT_ACTIVE / BLOCKED / FOLLOW_UP_DUE / AWAITING_OUTCOME
     if (
       session.conversationState === "COMMITMENT_ACTIVE" ||
+      session.conversationState === "BLOCKED" ||
       session.conversationState === "FOLLOW_UP_DUE" ||
-      session.conversationState === "AWAITING_OUTCOME" ||
-      session.conversationState === "BLOCKED"
+      session.conversationState === "AWAITING_OUTCOME"
     ) {
+      // 1. Task modification ("actually change the task to finish only the scheduler")
+      if (classified.intent === "MODIFY_COMMITMENT" && classified.commitmentModification && activeCommitment) {
+        const updated = await this.store.updateCommitmentTask(
+          activeCommitment.id,
+          classified.commitmentModification
+        );
+        return {
+          reply: `Commitment updated to: "${updated.commitment}".\n\nDeadline remains ${formatDeadline(updated.dueAt)}.`,
+          session,
+          commitment: updated
+        };
+      }
+
+      // 2. Keep deadline
+      if (classified.intent === "KEEP_DEADLINE" && activeCommitment) {
+        session.conversationState = "COMMITMENT_ACTIVE";
+        await this.store.saveUserSession(session);
+        const timeFormatted = formatDeadline(activeCommitment.dueAt);
+        return {
+          reply: `Keeping original deadline: ${timeFormatted}.\n\nI'll check back then.`,
+          session,
+          commitment: activeCommitment
+        };
+      }
+
+      // 3. Reconvene the Board on the blocker
+      if (classified.intent === "RECONVENE_BOARD" && activeCommitment) {
+        const blockerContext = activeCommitment.blocker || "Task blocked by unexpected obstacle";
+        const { board } = await this.evaluate(
+          userId,
+          `Our commitment "${activeCommitment.commitment}" is blocked by: ${blockerContext}. What should we do?`
+        );
+
+        session.conversationState = "BLOCKED";
+        await this.store.saveUserSession(session);
+
+        return {
+          reply:
+            `BOARD RECONVENED\n\n` +
+            `VERDICT\n${board.verdict}\n\n` +
+            `REVISED ACTION\n${board.firstAction}\n\n` +
+            `Do you want to:\n1. keep the deadline\n2. move it`,
+          session
+        };
+      }
+
+      // 4. Move/change deadline
       if (classified.intent === "CHANGE_DEADLINE") {
         if (classified.extractedDeadline && activeCommitment) {
           const updated = await this.store.updateCommitmentDeadline(
             activeCommitment.id,
             classified.extractedDeadline
           );
+          // Restore to COMMITMENT_ACTIVE and pending status
           session.conversationState = "COMMITMENT_ACTIVE";
           await this.store.saveUserSession(session);
 
@@ -308,6 +399,7 @@ export class CeoMeService {
         };
       }
 
+      // 5. Completion
       if (classified.intent === "REPORT_DONE") {
         if (!activeCommitment) {
           return {
@@ -334,6 +426,7 @@ export class CeoMeService {
         };
       }
 
+      // 6. Blocked / partial
       if (classified.intent === "REPORT_BLOCKED") {
         if (!activeCommitment) {
           return {
@@ -342,40 +435,24 @@ export class CeoMeService {
           };
         }
 
-        // Determine if blocker details were already provided
-        const lower = text.toLowerCase();
-        let blockerDetail = "";
-        if (lower.includes("because")) {
-          blockerDetail = text.slice(lower.indexOf("because") + 7).trim();
-        } else if (lower.includes("but")) {
-          blockerDetail = text.slice(lower.indexOf("but") + 3).trim();
-        } else if (lower.includes("photon is blocking me")) {
-          blockerDetail = "Photon is blocking me";
-        } else if (lower.includes("mostly")) {
-          blockerDetail = text;
-        }
+        const blockerDetail = classified.blocker || classified.extractedText || text;
 
         session.conversationState = "BLOCKED";
         await this.store.saveUserSession(session);
         await this.store.updateCommitmentStatus(
           activeCommitment.id,
           "blocked",
-          blockerDetail || text
+          undefined,
+          blockerDetail
         );
 
-        if (blockerDetail) {
-          return {
-            reply: `Got it.\n\nBlocker: ${blockerDetail}.\n\nDo you want to:\n1. keep the deadline\n2. move it\n3. reconvene the Board`,
-            session
-          };
-        }
-
         return {
-          reply: "What's blocking you?",
+          reply: `Got it.\n\nBlocker: ${blockerDetail}.\n\nDo you want to:\n1. keep the deadline\n2. move it\n3. reconvene the Board`,
           session
         };
       }
 
+      // 7. Abandonment -> transition to AWAITING_ABANDON_REASON
       if (classified.intent === "REPORT_ABANDONED") {
         if (!activeCommitment) {
           return {
@@ -384,25 +461,17 @@ export class CeoMeService {
           };
         }
 
-        const abandoned = await this.store.updateCommitmentStatus(
-          activeCommitment.id,
-          "abandoned",
-          text
-        );
-        session.conversationState = "ABANDONED";
-        session.activeCommitmentId = undefined;
-        session.activeDecisionId = undefined;
+        session.conversationState = "AWAITING_ABANDON_REASON";
         await this.store.saveUserSession(session);
 
         return {
           reply: "Understood.\n\nI'm marking this abandoned, not completed.\n\nWhy did you drop it?",
-          session,
-          commitment: abandoned
+          session
         };
       }
     }
 
-    // If user says "DONE" / "BLOCKED" / "ABANDONED" without active commitment
+    // Guard if user says "DONE" / "BLOCKED" / "ABANDONED" when no commitment exists
     if (
       classified.intent === "REPORT_DONE" ||
       classified.intent === "REPORT_BLOCKED" ||

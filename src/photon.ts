@@ -58,7 +58,7 @@ const transport: TransportSender = {
         await space.send(text);
       });
 
-      console.log(`[PROACTIVE] Sent follow-up to user ${userId} in space ${spaceId}`);
+      console.log(`[PROACTIVE] Sent / accepted by transport for user ${userId} in space ${spaceId}`);
       return true;
     } catch (err) {
       console.error(`[PROACTIVE] Failed to send message to ${userId}:`, err);

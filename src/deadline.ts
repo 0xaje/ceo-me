@@ -3,7 +3,8 @@
  * Handles:
  * - relative intervals: "in 30 minutes", "in 2 hours", "give me 45 minutes", "give me 3 minutes"
  * - clock times: "8pm", "8:00 PM", "tonight at 9", "9 tonight", "remind me at 7", "by 8 tonight"
- * - relative periods: "tomorrow morning", "tomorrow at 9", "Friday at 5", "by midnight", "before lunch"
+ * - weekdays: "Friday at 5", "Friday at 5pm", "next Friday at 5", "Monday at 10am"
+ * - relative periods with smart rollover: "tomorrow morning", "tomorrow at 9", "by midnight", "before lunch", "after lunch", "before dinner"
  * - timezone support (e.g. Africa/Lagos)
  */
 
@@ -12,11 +13,6 @@ export interface DeadlineParseResult {
   iso?: string;
   ambiguous?: boolean;
   clarificationPrompt?: string;
-}
-
-interface TimeParts {
-  hours: number;
-  minutes: number;
 }
 
 /**
@@ -61,7 +57,7 @@ export function formatDeadlineFull(isoUtc: string, timeZone = "Africa/Lagos"): s
 }
 
 /**
- * Get current year, month, day, hour, min in specified timezone
+ * Get current year, month, day, hour, min, dayOfWeek in specified timezone
  */
 function getPartsInTz(date: Date, timeZone: string) {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -69,6 +65,7 @@ function getPartsInTz(date: Date, timeZone: string) {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    weekday: "long",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -80,11 +77,13 @@ function getPartsInTz(date: Date, timeZone: string) {
     const val = parts.find((p) => p.type === type)?.value;
     return val ? parseInt(val, 10) : 0;
   };
+  const weekday = parts.find((p) => p.type === "weekday")?.value?.toLowerCase() || "";
 
   return {
     year: find("year"),
     month: find("month"), // 1-indexed
     day: find("day"),
+    weekday,
     hour: find("hour"),
     minute: find("minute"),
     second: find("second")
@@ -102,7 +101,6 @@ function makeUtcIsoFromTz(
   minute: number,
   timeZone: string
 ): string {
-  // We can calculate offset by comparing UTC representation
   const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
   const tzParts = getPartsInTz(guess, timeZone);
   const diffMs =
@@ -113,8 +111,10 @@ function makeUtcIsoFromTz(
   return finalDate.toISOString();
 }
 
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
 /**
- * Main parser
+ * Main natural deadline parser
  */
 export function parseNaturalDeadline(
   rawInput: string,
@@ -123,11 +123,9 @@ export function parseNaturalDeadline(
 ): DeadlineParseResult {
   const input = rawInput.trim().toLowerCase();
 
-  // 1. Check for genuine ambiguity first
+  // 1. Genuine ambiguity check
   if (
-    /^(later|sometime|tomorrow sometime|sometime tomorrow|next week|eventually|soon)$/.test(
-      input
-    ) ||
+    /^(later|sometime|tomorrow sometime|sometime tomorrow|next week|eventually|soon)$/.test(input) ||
     /^(sometime later|not sure)$/.test(input)
   ) {
     return {
@@ -137,10 +135,9 @@ export function parseNaturalDeadline(
     };
   }
 
-  // 2. Relative minute / hour intervals:
-  // e.g., "in 30 minutes", "in 30 mins", "give me 30 minutes", "give me 3 mins", "in two hours", "in 1 hour"
+  // 2. Relative minute intervals: "in 30 minutes", "give me 3 minutes", "3 mins"
   const relMinutesMatch = input.match(
-    /(?:in|give me|within)?\s*(\d+)\s*(?:minutes|minute|mins|min)\b/
+    /(?:in|give me|within|another)?\s*(\d+)\s*(?:minutes|minute|mins|min)\b/
   );
   if (relMinutesMatch) {
     const minutes = parseInt(relMinutesMatch[1], 10);
@@ -148,8 +145,9 @@ export function parseNaturalDeadline(
     return { success: true, iso: target.toISOString() };
   }
 
+  // Relative hour intervals: "in 2 hours", "give me another hour", "in one hour"
   const relHoursMatch = input.match(
-    /(?:in|give me|within)?\s*(\d+|one|two|three|four)\s*(?:hours|hour|hrs|hr)\b/
+    /(?:in|give me|within|another)?\s*(\d+|one|two|three|four)\s*(?:hours|hour|hrs|hr)\b/
   );
   if (relHoursMatch) {
     let hours = parseInt(relHoursMatch[1], 10);
@@ -161,7 +159,13 @@ export function parseNaturalDeadline(
     return { success: true, iso: target.toISOString() };
   }
 
-  // 3. ISO format check (e.g. 2026-10-06T21:00:00+01:00)
+  // Single "another hour" or "an hour"
+  if (/\b(?:another|an)\s+hour\b/.test(input)) {
+    const target = new Date(now.getTime() + 60 * 60 * 1000);
+    return { success: true, iso: target.toISOString() };
+  }
+
+  // 3. ISO format check
   if (input.includes("t") && (input.includes("z") || input.includes("+") || input.includes("-"))) {
     const parsed = new Date(rawInput.trim());
     if (!isNaN(parsed.getTime())) {
@@ -171,66 +175,79 @@ export function parseNaturalDeadline(
 
   const currentTz = getPartsInTz(now, timeZone);
 
-  // 4. Midnight
-  if (input.includes("midnight") || input.includes("by midnight")) {
-    const isTomorrowMidnight = input.includes("tomorrow");
-    let targetDay = currentTz.day;
-    let targetMonth = currentTz.month;
-    let targetYear = currentTz.year;
-
-    if (isTomorrowMidnight || currentTz.hour >= 23) {
-      targetDay += 1;
-    }
-    return {
-      success: true,
-      iso: makeUtcIsoFromTz(targetYear, targetMonth, targetDay, 23, 59, timeZone)
-    };
-  }
-
-  // 5. Before lunch / after lunch / before dinner
+  // 4. Relative meal/event periods with smart rollover if already passed today:
+  // "before lunch" (12:30), "after lunch" (14:00), "before dinner" (19:00), "by midnight" (23:59)
   if (input.includes("before lunch")) {
-    // 12:30 PM
+    const targetHour = 12;
+    const targetMin = 30;
+    const isPast = currentTz.hour > targetHour || (currentTz.hour === targetHour && currentTz.minute >= targetMin);
+    const targetDate = isPast ? new Date(now.getTime() + 24 * 60 * 60 * 1000) : now;
+    const targetTz = getPartsInTz(targetDate, timeZone);
     return {
       success: true,
-      iso: makeUtcIsoFromTz(currentTz.year, currentTz.month, currentTz.day, 12, 30, timeZone)
+      iso: makeUtcIsoFromTz(targetTz.year, targetTz.month, targetTz.day, targetHour, targetMin, timeZone)
     };
   }
 
   if (input.includes("after lunch")) {
-    // 2:00 PM
+    const targetHour = 14;
+    const targetMin = 0;
+    const isPast = currentTz.hour > targetHour || (currentTz.hour === targetHour && currentTz.minute >= targetMin);
+    const targetDate = isPast ? new Date(now.getTime() + 24 * 60 * 60 * 1000) : now;
+    const targetTz = getPartsInTz(targetDate, timeZone);
     return {
       success: true,
-      iso: makeUtcIsoFromTz(currentTz.year, currentTz.month, currentTz.day, 14, 0, timeZone)
+      iso: makeUtcIsoFromTz(targetTz.year, targetTz.month, targetTz.day, targetHour, targetMin, timeZone)
     };
   }
 
   if (input.includes("before dinner")) {
-    // 7:00 PM
+    const targetHour = 19;
+    const targetMin = 0;
+    const isPast = currentTz.hour > targetHour || (currentTz.hour === targetHour && currentTz.minute >= targetMin);
+    const targetDate = isPast ? new Date(now.getTime() + 24 * 60 * 60 * 1000) : now;
+    const targetTz = getPartsInTz(targetDate, timeZone);
     return {
       success: true,
-      iso: makeUtcIsoFromTz(currentTz.year, currentTz.month, currentTz.day, 19, 0, timeZone)
+      iso: makeUtcIsoFromTz(targetTz.year, targetTz.month, targetTz.day, targetHour, targetMin, timeZone)
     };
   }
 
-  // 6. "tomorrow morning"
+  if (input.includes("midnight") || input.includes("by midnight")) {
+    const isTomorrowMidnight = input.includes("tomorrow");
+    const isPast = currentTz.hour >= 23 && currentTz.minute >= 59;
+    const dayOffset = isTomorrowMidnight || isPast ? 1 : 0;
+    const targetDate = new Date(now.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const targetTz = getPartsInTz(targetDate, timeZone);
+    return {
+      success: true,
+      iso: makeUtcIsoFromTz(targetTz.year, targetTz.month, targetTz.day, 23, 59, timeZone)
+    };
+  }
+
   if (input.includes("tomorrow morning")) {
     const targetDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const tomorrowTz = getPartsInTz(targetDate, timeZone);
+    const targetTz = getPartsInTz(targetDate, timeZone);
     return {
       success: true,
-      iso: makeUtcIsoFromTz(tomorrowTz.year, tomorrowTz.month, tomorrowTz.day, 9, 0, timeZone)
+      iso: makeUtcIsoFromTz(targetTz.year, targetTz.month, targetTz.day, 9, 0, timeZone)
     };
   }
 
-  // 7. Parse clock times:
-  // e.g.: "8pm", "8:00 PM", "tonight at 9", "9 tonight", "remind me at 7", "by 8 tonight", "at 9"
-  // "tomorrow at 9", "tomorrow 9am", "friday at 5"
+  // 5. Weekdays: "Friday at 5", "Friday at 5pm", "next Friday at 5", "Monday at 9am"
+  let targetWeekdayIndex = -1;
+  for (let i = 0; i < WEEKDAYS.length; i++) {
+    if (new RegExp(`\\b${WEEKDAYS[i]}\\b`).test(input)) {
+      targetWeekdayIndex = i;
+      break;
+    }
+  }
+
+  // 6. Clock time parsing: "at 5", "5pm", "8:00 PM", "9 tonight", "tomorrow at 9"
   const isTomorrow = input.includes("tomorrow");
   const isTonight = input.includes("tonight");
 
-  // Regex to detect hour and optional minutes and am/pm
-  const clockRegex =
-    /(?:at|by|until)?\s*(\b\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/;
+  const clockRegex = /(?:at|by|until)?\s*(\b\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/;
   const match = input.match(clockRegex);
 
   if (match) {
@@ -243,42 +260,65 @@ export function parseNaturalDeadline(
     } else if (ampm === "am" && hour === 12) {
       hour = 0;
     } else if (!ampm) {
-      // No am/pm specified
       if (isTonight) {
         if (hour < 12) hour += 12;
       } else if (hour >= 1 && hour <= 6) {
-        // Business hours / typical afternoon assumption (e.g. 5 -> 17:00)
+        // Assume afternoon/evening (e.g. "Friday at 5" -> 17:00)
         hour += 12;
       } else if (hour >= 7 && hour <= 11) {
-        // If current hour is past this in morning, assume evening
         if (currentTz.hour >= hour) {
           hour += 12;
         }
       }
     }
 
-    let targetYear = currentTz.year;
-    let targetMonth = currentTz.month;
-    let targetDay = currentTz.day;
+    // Determine target day
+    if (targetWeekdayIndex !== -1) {
+      const currentDayOfWeek = WEEKDAYS.indexOf(currentTz.weekday);
+      let daysAhead = (targetWeekdayIndex - currentDayOfWeek + 7) % 7;
 
+      const isNext = input.includes("next");
+      // If same day of week, check if time has already passed or if "next" was specified
+      if (daysAhead === 0) {
+        const alreadyPassed = hour < currentTz.hour || (hour === currentTz.hour && minute <= currentTz.minute);
+        if (alreadyPassed || isNext) {
+          daysAhead = 7;
+        }
+      } else if (isNext && daysAhead < 7) {
+        daysAhead += 7;
+      }
+
+      const targetDate = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+      const targetTz = getPartsInTz(targetDate, timeZone);
+      const iso = makeUtcIsoFromTz(targetTz.year, targetTz.month, targetTz.day, hour, minute, timeZone);
+      return { success: true, iso };
+    }
+
+    let targetDate = now;
     if (isTomorrow) {
-      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      const tomorrowTz = getPartsInTz(tomorrow, timeZone);
-      targetYear = tomorrowTz.year;
-      targetMonth = tomorrowTz.month;
-      targetDay = tomorrowTz.day;
+      targetDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     } else {
-      // If time has already passed today and wasn't marked tomorrow, maybe tomorrow?
-      if (!isTonight && (hour < currentTz.hour || (hour === currentTz.hour && minute <= currentTz.minute))) {
-        const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-        const tomorrowTz = getPartsInTz(tomorrow, timeZone);
-        targetYear = tomorrowTz.year;
-        targetMonth = tomorrowTz.month;
-        targetDay = tomorrowTz.day;
+      // If time has already passed today and not explicitly tonight, roll over to tomorrow
+      const alreadyPassed = hour < currentTz.hour || (hour === currentTz.hour && minute <= currentTz.minute);
+      if (alreadyPassed && !isTonight) {
+        targetDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
       }
     }
 
-    const iso = makeUtcIsoFromTz(targetYear, targetMonth, targetDay, hour, minute, timeZone);
+    const targetTz = getPartsInTz(targetDate, timeZone);
+    const iso = makeUtcIsoFromTz(targetTz.year, targetTz.month, targetTz.day, hour, minute, timeZone);
+    return { success: true, iso };
+  }
+
+  // Weekday specified with no time (e.g. "on Friday")
+  if (targetWeekdayIndex !== -1) {
+    const currentDayOfWeek = WEEKDAYS.indexOf(currentTz.weekday);
+    let daysAhead = (targetWeekdayIndex - currentDayOfWeek + 7) % 7;
+    if (daysAhead === 0) daysAhead = 7;
+    const targetDate = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+    const targetTz = getPartsInTz(targetDate, timeZone);
+    // Default 5:00 PM
+    const iso = makeUtcIsoFromTz(targetTz.year, targetTz.month, targetTz.day, 17, 0, timeZone);
     return { success: true, iso };
   }
 

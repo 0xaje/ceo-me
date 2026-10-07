@@ -20,6 +20,7 @@ export type ConversationState =
   | "FOLLOW_UP_DUE"
   | "AWAITING_OUTCOME"
   | "BLOCKED"
+  | "AWAITING_ABANDON_REASON"
   | "COMPLETED"
   | "ABANDONED";
 
@@ -31,6 +32,8 @@ export type UserIntent =
   | "MODIFY_COMMITMENT"
   | "SET_DEADLINE"
   | "CHANGE_DEADLINE"
+  | "KEEP_DEADLINE"
+  | "RECONVENE_BOARD"
   | "REPORT_DONE"
   | "REPORT_BLOCKED"
   | "REPORT_ABANDONED"
@@ -56,6 +59,7 @@ export type CommitmentRecord = {
   commitment: string;
   dueAt: string;
   status: CommitmentStatus;
+  blocker?: string;
   createdAt: string;
   updatedAt: string;
   outcomeNote?: string;
@@ -86,4 +90,5 @@ export type BoardVerdict = {
   verdict: string;
   firstAction: string;
   suggestedCommitment?: string;
+  perspectives?: { seat: BoardSeat; opinion: string }[];
 };

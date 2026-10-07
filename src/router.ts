@@ -14,13 +14,18 @@ export interface ClassifiedIntent {
   confidence: number;
   extractedDeadline?: string;
   extractedText?: string;
+  blocker?: string;
+  commitmentModification?: string;
+}
+
+export interface IntentClassifier {
+  classify(userMessage: string, context: IntentContext): Promise<ClassifiedIntent>;
 }
 
 /**
- * Natural language intent router
- * Evaluates user message in the context of current conversation state.
+ * Layer 1: Deterministic Fast Rule Classifier
  */
-export function classifyIntent(
+export function classifyDeterministicIntent(
   userMessage: string,
   context: IntentContext
 ): ClassifiedIntent {
@@ -28,19 +33,20 @@ export function classifyIntent(
   const lower = text.toLowerCase();
 
   // 1. Explicit explanations / questions:
-  // "why did the board decide that?", "why did the board choose that?", "why is future you on the board?", "what exactly am I supposed to finish?"
   if (
     /^(why\b|what exactly\b|who voted\b|can you explain\b|tell me more\b)/.test(lower) ||
     lower.includes("why did the board") ||
     lower.includes("what am i supposed to") ||
     lower.includes("what did the board") ||
+    lower.includes("what exactly did i agree to") ||
+    lower.includes("what did i commit to") ||
+    lower.includes("what was my task") ||
     lower.includes("why is ")
   ) {
     return { intent: "ASK_EXPLANATION", confidence: 0.95, extractedText: text };
   }
 
   // 2. Status queries:
-  // "how am I doing?", "what's my status?", "show my record", "how's my progress"
   if (
     lower.includes("how am i doing") ||
     lower.includes("how am i doing?") ||
@@ -52,8 +58,50 @@ export function classifyIntent(
     return { intent: "ASK_STATUS", confidence: 0.95 };
   }
 
-  // 3. Outcomes (DONE, BLOCKED, ABANDONED, etc.)
-  // Check for partial/blocked:
+  // 3. Keep deadline / same deadline (in BLOCKED state or general)
+  if (
+    lower === "1" ||
+    lower === "keep it" ||
+    lower === "keep the deadline" ||
+    lower === "same deadline" ||
+    lower === "keep same deadline" ||
+    lower.includes("keep the same deadline") ||
+    lower.includes("keep it")
+  ) {
+    return { intent: "KEEP_DEADLINE", confidence: 0.95 };
+  }
+
+  // 4. Reconvene the Board (in BLOCKED state or discussion)
+  if (
+    lower === "3" ||
+    lower.includes("reconvene") ||
+    lower.includes("ask the board again") ||
+    lower.includes("let the board reconsider") ||
+    lower.includes("reconsider")
+  ) {
+    return { intent: "RECONVENE_BOARD", confidence: 0.95 };
+  }
+
+  // 5. Change task / modify commitment
+  if (
+    lower.includes("change the task") ||
+    lower.includes("change task") ||
+    lower.includes("modify task") ||
+    lower.includes("change commitment")
+  ) {
+    let newTask = text;
+    if (lower.includes("to ")) {
+      newTask = text.slice(lower.indexOf("to ") + 3).trim();
+    }
+    return {
+      intent: "MODIFY_COMMITMENT",
+      confidence: 0.9,
+      commitmentModification: newTask,
+      extractedText: newTask
+    };
+  }
+
+  // 6. Outcomes (DONE, BLOCKED, ABANDONED)
   if (
     lower.includes("mostly") ||
     lower.includes("blocked") ||
@@ -62,12 +110,19 @@ export function classifyIntent(
     lower.includes("isn't responding") ||
     lower.includes("is not responding") ||
     lower.includes("failing") ||
-    lower.includes("has an issue")
+    lower.includes("has an issue") ||
+    lower.includes("keeps dropping") ||
+    lower.includes("dropping the")
   ) {
-    return { intent: "REPORT_BLOCKED", confidence: 0.9, extractedText: text };
+    let blocker = text;
+    if (lower.includes("because")) {
+      blocker = text.slice(lower.indexOf("because") + 7).trim();
+    } else if (lower.includes("but")) {
+      blocker = text.slice(lower.indexOf("but") + 3).trim();
+    }
+    return { intent: "REPORT_BLOCKED", confidence: 0.9, blocker, extractedText: text };
   }
 
-  // Check for abandonment:
   if (
     lower.includes("gave up") ||
     lower.includes("abandoned") ||
@@ -79,7 +134,6 @@ export function classifyIntent(
     return { intent: "REPORT_ABANDONED", confidence: 0.9, extractedText: text };
   }
 
-  // Check for completion:
   if (
     lower === "done" ||
     lower === "done now" ||
@@ -94,31 +148,25 @@ export function classifyIntent(
     return { intent: "REPORT_DONE", confidence: 0.95 };
   }
 
-  // 4. In AWAITING_COMMITMENT_CONFIRMATION or DECISION_DISCUSSION
+  // 7. In AWAITING_COMMITMENT_CONFIRMATION or DECISION_DISCUSSION
   if (
     context.conversationState === "AWAITING_COMMITMENT_CONFIRMATION" ||
     context.conversationState === "DECISION_DISCUSSION"
   ) {
-    // Rejections / Reconsideration:
-    // "no", "not that", "I don't want to commit", "can we reconsider?", "nah", "change the task"
     if (
       lower === "no" ||
       lower === "nah" ||
       lower.includes("don't want to commit") ||
       lower.includes("dont want to commit") ||
       lower.includes("not that") ||
-      lower.includes("reconsider") ||
-      lower.includes("change the task") ||
       lower.includes("not what i want")
     ) {
-      if (lower.includes("change") || lower.includes("not that") || lower.includes("different")) {
+      if (lower.includes("not that") || lower.includes("different")) {
         return { intent: "MODIFY_COMMITMENT", confidence: 0.9, extractedText: text };
       }
       return { intent: "REJECT_COMMITMENT", confidence: 0.9 };
     }
 
-    // Acceptance (with or without deadline embedded)
-    // "yes", "yeah", "hold me to it", "deal", "let's do it", "lock it in", "yes, by 8 tonight", "yeah hold me to it"
     const acceptTriggers = [
       "yes",
       "yeah",
@@ -140,7 +188,6 @@ export function classifyIntent(
     );
 
     if (hasAcceptTrigger) {
-      // Check if deadline is included: e.g. "yes, by 8 tonight", "yeah hold me to it, give me 30 mins"
       const parsedDeadline = parseNaturalDeadline(text);
       if (parsedDeadline.success && parsedDeadline.iso) {
         return {
@@ -153,7 +200,7 @@ export function classifyIntent(
     }
   }
 
-  // 5. In AWAITING_DEADLINE
+  // 8. In AWAITING_DEADLINE
   if (context.conversationState === "AWAITING_DEADLINE") {
     const parsed = parseNaturalDeadline(text);
     if (parsed.success && parsed.iso) {
@@ -173,17 +220,24 @@ export function classifyIntent(
     }
   }
 
-  // 6. In COMMITMENT_ACTIVE: change deadline
-  if (context.conversationState === "COMMITMENT_ACTIVE") {
-    // "make it 9 instead", "give me another hour", "actually make it 9pm", "reschedule for tomorrow"
+  // 9. In COMMITMENT_ACTIVE / BLOCKED / FOLLOW_UP_DUE: change or move deadline
+  if (
+    context.conversationState === "COMMITMENT_ACTIVE" ||
+    context.conversationState === "BLOCKED" ||
+    context.conversationState === "FOLLOW_UP_DUE"
+  ) {
     if (
+      lower === "2" ||
+      lower === "move it" ||
+      lower.includes("move it") ||
       lower.includes("make it") ||
       lower.includes("another hour") ||
       lower.includes("more time") ||
       lower.includes("change the deadline") ||
       lower.includes("reschedule") ||
       lower.includes("give me until") ||
-      lower.includes("give me another")
+      lower.includes("give me another") ||
+      lower.includes("give me ")
     ) {
       const parsed = parseNaturalDeadline(text);
       return {
@@ -195,11 +249,89 @@ export function classifyIntent(
     }
   }
 
-  // 7. Small talk or generic phrases
+  // 10. Small talk
   if (/^(hello|hi|hey|good morning|ping)$/.test(lower)) {
     return { intent: "SMALL_TALK", confidence: 0.9 };
   }
 
-  // 8. If nothing matched and user sent a sentence describing a dilemma, decision or problem
+  // 11. Default: new decision / discussion
   return { intent: "NEW_DECISION", confidence: 0.8, extractedText: text };
+}
+
+/**
+ * Two-Layer Semantic Intent Router
+ * Layer 1: Fast deterministic rule matching
+ * Layer 2: LLM Structured Classifier (if OPENAI_API_KEY / GEMINI_API_KEY is available)
+ */
+export class TwoLayerIntentRouter implements IntentClassifier {
+  async classify(userMessage: string, context: IntentContext): Promise<ClassifiedIntent> {
+    const layer1 = classifyDeterministicIntent(userMessage, context);
+
+    // If layer 1 has high confidence or matches an unambiguous intent, return immediately
+    if (
+      layer1.confidence >= 0.9 ||
+      layer1.intent === "REPORT_DONE" ||
+      layer1.intent === "REPORT_BLOCKED" ||
+      layer1.intent === "ACCEPT_COMMITMENT" ||
+      layer1.intent === "REJECT_COMMITMENT" ||
+      layer1.intent === "KEEP_DEADLINE" ||
+      layer1.intent === "RECONVENE_BOARD"
+    ) {
+      return layer1;
+    }
+
+    // Layer 2: LLM classification if API key is present
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (apiKey) {
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Classify user intent in CEO Me conversation. Output JSON with: intent, confidence, deadlineText (optional), blocker (optional), commitmentModification (optional), explanationQuestion (optional), newDecisionText (optional). Allowed intents: NEW_DECISION, ASK_EXPLANATION, ACCEPT_COMMITMENT, REJECT_COMMITMENT, MODIFY_COMMITMENT, SET_DEADLINE, CHANGE_DEADLINE, KEEP_DEADLINE, RECONVENE_BOARD, REPORT_DONE, REPORT_BLOCKED, REPORT_ABANDONED, ASK_STATUS, SMALL_TALK, UNKNOWN."
+              },
+              {
+                role: "user",
+                content: JSON.stringify({ message: userMessage, context })
+              }
+            ]
+          })
+        });
+
+        if (response.ok) {
+          const json = await response.json();
+          const parsed = JSON.parse(json.choices[0].message.content);
+          if (parsed.intent) {
+            let extractedDeadline: string | undefined;
+            if (parsed.deadlineText) {
+              const res = parseNaturalDeadline(parsed.deadlineText);
+              if (res.success) extractedDeadline = res.iso;
+            }
+
+            return {
+              intent: parsed.intent as UserIntent,
+              confidence: parsed.confidence || 0.9,
+              extractedDeadline,
+              blocker: parsed.blocker,
+              commitmentModification: parsed.commitmentModification,
+              extractedText: parsed.newDecisionText || userMessage
+            };
+          }
+        }
+      } catch {
+        // Fall back safely to layer 1
+      }
+    }
+
+    return layer1;
+  }
 }
