@@ -189,25 +189,28 @@ export class DynamicBoardEngine implements BoardReasoningEngine {
 
     const systemPrompt =
       "You are CEO Me, a personal board of directors. Your voice is calm, decisive, intelligent, concise, and slightly witty. " +
-      "Never use corporate jargon, therapy speak, or generic advice. Lower cognitive load. Resolve internal disagreements.\n" +
-      "Board Seats:\n" +
-      "- OPERATOR: Execution, scope, deadlines, operational reality.\n" +
-      "- FUTURE YOU: Long-term consequences, identity, opportunity cost.\n" +
-      "- CFO: Money, runway, risk, value, resource allocation.\n" +
-      "- CREATIVE: Presentation, brand perception, original angle.\n" +
-      "- CHAOS INTERN: Bold, unconventional, non-obvious intervention.\n\n" +
-      "Return JSON matching:\n" +
+      "Never use corporate jargon, therapy speak, or generic advice. Lower cognitive load. Resolve internal disagreements.\n\n" +
+      "Return ONLY a valid JSON object matching:\n" +
       "{\n" +
-      "  \"perspectives\": [{\"seat\": \"operator\", \"opinion\": \"...\"}],\n" +
-      "  \"verdict\": \"Short, decisive verdict resolving the seats\",\n" +
-      "  \"firstAction\": \"One concrete, measurable first move\",\n" +
-      "  \"suggestedCommitment\": \"Single sentence the user can commit to\"\n" +
-      "}\n" +
-      "DO NOT add any seats outside the selected seats list.";
+      "  \"perspectives\": [\n" +
+      "    {\"seat\": \"<seat_name>\", \"opinion\": \"<one sharp sentence>\"}\n" +
+      "  ],\n" +
+      "  \"verdict\": \"<one decisive sentence ruling on the dilemma>\",\n" +
+      "  \"firstAction\": \"<one concrete immediate action>\",\n" +
+      "  \"suggestedCommitment\": \"<single sentence commitment>\"\n" +
+      "}\n\n" +
+      "RULES:\n" +
+      "1. Only include the exact seats requested by the user.\n" +
+      "2. Keep each opinion strictly one short sentence.\n" +
+      "3. Close all JSON quotes and braces properly.";
+
+    const userPrompt =
+      `User dilemma: "${input.userMessage}"\n` +
+      `Generate perspectives ONLY for these seats: ${input.selectedSeats.join(", ")}.`;
 
     const structured = await this.provider.generateStructured<BoardVerdict>(
       systemPrompt,
-      input,
+      userPrompt,
       (val) => validateBoardOutput(val, input.selectedSeats)
     );
 

@@ -31,7 +31,8 @@ export class OllamaReasoningProvider implements StructuredReasoningProvider {
   constructor(options: OllamaClientOptions) {
     this.baseUrl = (options.baseUrl || "http://127.0.0.1:11434").replace(/\/+$/, "");
     this.model = options.model;
-    this.timeoutMs = options.timeoutMs ?? 15000;
+    const envTimeout = process.env.OLLAMA_TIMEOUT_MS ? parseInt(process.env.OLLAMA_TIMEOUT_MS, 10) : NaN;
+    this.timeoutMs = options.timeoutMs ?? (!isNaN(envTimeout) ? envTimeout : 45000);
   }
 
   async generateStructured<T>(
@@ -64,7 +65,8 @@ export class OllamaReasoningProvider implements StructuredReasoningProvider {
           format: "json",
           stream: false,
           options: {
-            temperature: 0.1
+            temperature: 0.1,
+            num_predict: 2048
           }
         })
       });
@@ -83,15 +85,17 @@ export class OllamaReasoningProvider implements StructuredReasoningProvider {
 
       let parsed: unknown;
       try {
-        parsed = JSON.parse(content);
+        const cleaned = content.replace(/```(?:json)?/gi, "").trim();
+        parsed = JSON.parse(cleaned);
       } catch (err) {
         console.warn("[OLLAMA] Failed to parse JSON response:", (err as Error).message);
+        console.warn("[OLLAMA] Raw content was:\n", content);
         return null;
       }
 
       const validated = validator(parsed);
       if (validated === null) {
-        console.warn("[OLLAMA] Response failed schema validation");
+        console.warn("[OLLAMA] Response failed schema validation:", JSON.stringify(parsed));
         return null;
       }
 
