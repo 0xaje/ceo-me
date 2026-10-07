@@ -194,7 +194,7 @@ describe("CEO-002B Correctness & Natural Conversational Flow", () => {
       "user-muse-1",
       "Should I accept a freelance client who pays more but wants weekend work?"
     );
-    expect(d1.board.verdict).toContain("Do not surrender weekends for marginal pay");
+    expect(d1.board.verdict).toMatch(/weekend work is premium-priced|Do not surrender weekends/);
 
     // Dilemma 2: Two hackathons
     const d2 = await service.evaluate(

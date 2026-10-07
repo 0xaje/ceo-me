@@ -200,4 +200,93 @@ describe("CEO-002C Local Ollama Reasoning & Provider Adapter", () => {
     expect(fixTaskRes.reply).toContain("Commitment updated to:");
     expect(fixTaskRes.commitment?.commitment).toContain("the scheduler");
   });
+
+  describe("Board Quality Pass & Validation Standards", () => {
+    it("rejects generic corporate filler, contradictions, and non-actionable commitments", async () => {
+      // 1. Corporate filler in commitment
+      const fillerCommitment = validateBoardOutput(
+        {
+          verdict: "Take the client with conditions.",
+          firstAction: "Send revised terms.",
+          suggestedCommitment: "Commit to finding a mutually acceptable solution that prioritizes well-being."
+        },
+        ["cfo", "operator", "future_you"]
+      );
+      expect(fillerCommitment).toBeNull();
+
+      // 2. Direct contradiction between verdict (decline) and firstAction (accept)
+      const contradictoryOutput = validateBoardOutput(
+        {
+          verdict: "Given the risks, decline the offer completely.",
+          firstAction: "Accept the client offer and sign the agreement.",
+          suggestedCommitment: "Sign agreement tomorrow"
+        },
+        ["cfo", "operator"]
+      );
+      expect(contradictoryOutput).toBeNull();
+
+      // 3. Non-actionable commitment lacking a concrete action verb
+      const nonActionable = validateBoardOutput(
+        {
+          verdict: "Stay focused on current roadmap.",
+          firstAction: "Ignore distractions.",
+          suggestedCommitment: "More awareness around priorities"
+        },
+        ["operator", "future_you"]
+      );
+      expect(nonActionable).toBeNull();
+    });
+
+    it("verifies test case A: client pays more but wants weekends", async () => {
+      const { service } = await makeService();
+      const evalRes = await service.evaluate("user-quality-a", "I have a client offering me more money, but they want me available every weekend. Should I take it?");
+      const b = evalRes.board;
+
+      expect(b.verdict).not.toMatch(/mutually acceptable|find a balance|it is advisable|well-being/i);
+      expect(b.firstAction).not.toMatch(/have a conversation|explore options/i);
+      expect(b.suggestedCommitment).toBeDefined();
+      expect(b.suggestedCommitment!).toMatch(/\b(Send|Draft|Reply|Negotiate|Decline)\b/i);
+      expect(b.suggestedCommitment!.split(".").filter(Boolean).length).toBeLessThanOrEqual(2);
+    });
+
+    it("verifies test case B: two hackathons due at once", async () => {
+      const { service } = await makeService();
+      const evalRes = await service.evaluate("user-quality-b", "I have two hackathons due at the same time. Which one should I focus on?");
+      const b = evalRes.board;
+
+      expect(b.verdict).toContain("Kill split attention");
+      expect(b.firstAction).toContain("Drop");
+      expect(b.suggestedCommitment).toMatch(/\bCommit\b/i);
+    });
+
+    it("verifies test case C: buying a laptop when cash is tight", async () => {
+      const { service } = await makeService();
+      const evalRes = await service.evaluate("user-quality-c", "Should I buy a new laptop now even though money is tight?");
+      const b = evalRes.board;
+
+      expect(b.verdict).not.toMatch(/mutually beneficial|consider options/i);
+      expect(b.firstAction).toContain("Audit");
+      expect(b.suggestedCommitment).toContain("Upgrade hardware");
+    });
+
+    it("verifies test case D: promised family to stop working but project is unfinished", async () => {
+      const { service } = await makeService();
+      const evalRes = await service.evaluate("user-quality-d", "I promised my family I would stop working tonight, but my code is unfinished.");
+      const b = evalRes.board;
+
+      expect(b.verdict).toContain("Keep the promise to your family");
+      expect(b.firstAction).toContain("close your laptop");
+      expect(b.suggestedCommitment).toContain("Close laptop");
+    });
+
+    it("verifies test case E: creative wants polish but operator wants to ship", async () => {
+      const { service } = await makeService();
+      const evalRes = await service.evaluate("user-quality-e", "Should I keep polishing the design or ship the functional build now?");
+      const b = evalRes.board;
+
+      expect(b.verdict).toContain("Ship the functional build now");
+      expect(b.firstAction).toContain("Cut the non-critical visual tweaks");
+      expect(b.suggestedCommitment).toContain("Deploy current build");
+    });
+  });
 });
