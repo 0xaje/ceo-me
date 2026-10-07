@@ -4,16 +4,22 @@ import { dirname } from "node:path";
 import type {
   CommitmentRecord,
   CommitmentStatus,
-  DecisionRecord
+  DecisionRecord,
+  UserRouting,
+  UserSessionRecord
 } from "./domain.js";
 
 type StoreSnapshot = {
   decisions: DecisionRecord[];
   commitments: CommitmentRecord[];
+  sessions?: Record<string, UserSessionRecord>;
 };
 
 export interface CeoStore {
   createDecision(input: Omit<DecisionRecord, "id" | "createdAt">): Promise<DecisionRecord>;
+  getDecision(id: string): Promise<DecisionRecord | undefined>;
+  listDecisionsForUser(userId: string): Promise<DecisionRecord[]>;
+
   createCommitment(
     input: Omit<CommitmentRecord, "id" | "status" | "createdAt" | "updatedAt">
   ): Promise<CommitmentRecord>;
@@ -22,9 +28,19 @@ export interface CeoStore {
     status: CommitmentStatus,
     outcomeNote?: string
   ): Promise<CommitmentRecord>;
+  updateCommitmentDeadline(id: string, dueAt: string): Promise<CommitmentRecord>;
+  recordFollowUpResult(
+    id: string,
+    result: { sentAt?: string; error?: string }
+  ): Promise<CommitmentRecord>;
   getCommitment(id: string): Promise<CommitmentRecord | undefined>;
   listCommitmentsForUser(userId: string): Promise<CommitmentRecord[]>;
   listDueCommitments(now: Date): Promise<CommitmentRecord[]>;
+
+  getUserSession(userId: string): Promise<UserSessionRecord>;
+  saveUserSession(session: UserSessionRecord): Promise<UserSessionRecord>;
+  saveUserRouting(userId: string, routing: UserRouting): Promise<void>;
+  listActiveRoutingSessions(): Promise<UserSessionRecord[]>;
 }
 
 export class JsonFileStore implements CeoStore {
@@ -33,10 +49,14 @@ export class JsonFileStore implements CeoStore {
   private async load(): Promise<StoreSnapshot> {
     try {
       const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as StoreSnapshot;
+      const data = JSON.parse(raw) as StoreSnapshot;
+      if (!data.decisions) data.decisions = [];
+      if (!data.commitments) data.commitments = [];
+      if (!data.sessions) data.sessions = {};
+      return data;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return { decisions: [], commitments: [] };
+        return { decisions: [], commitments: [], sessions: {} };
       }
       throw error;
     }
@@ -59,6 +79,16 @@ export class JsonFileStore implements CeoStore {
     snapshot.decisions.push(record);
     await this.save(snapshot);
     return record;
+  }
+
+  async getDecision(id: string): Promise<DecisionRecord | undefined> {
+    const snapshot = await this.load();
+    return snapshot.decisions.find((item) => item.id === id);
+  }
+
+  async listDecisionsForUser(userId: string): Promise<DecisionRecord[]> {
+    const snapshot = await this.load();
+    return snapshot.decisions.filter((item) => item.userId === userId);
   }
 
   async createCommitment(
@@ -102,6 +132,50 @@ export class JsonFileStore implements CeoStore {
     return updated;
   }
 
+  async updateCommitmentDeadline(id: string, dueAt: string): Promise<CommitmentRecord> {
+    const snapshot = await this.load();
+    const index = snapshot.commitments.findIndex((item) => item.id === id);
+
+    if (index === -1) {
+      throw new Error(`Unknown commitment: ${id}`);
+    }
+
+    const updated: CommitmentRecord = {
+      ...snapshot.commitments[index],
+      dueAt,
+      // Reset followUpSentAt so follow up fires at the new deadline
+      followUpSentAt: undefined,
+      updatedAt: new Date().toISOString()
+    };
+
+    snapshot.commitments[index] = updated;
+    await this.save(snapshot);
+    return updated;
+  }
+
+  async recordFollowUpResult(
+    id: string,
+    result: { sentAt?: string; error?: string }
+  ): Promise<CommitmentRecord> {
+    const snapshot = await this.load();
+    const index = snapshot.commitments.findIndex((item) => item.id === id);
+
+    if (index === -1) {
+      throw new Error(`Unknown commitment: ${id}`);
+    }
+
+    const updated: CommitmentRecord = {
+      ...snapshot.commitments[index],
+      followUpSentAt: result.sentAt,
+      followUpError: result.error,
+      updatedAt: new Date().toISOString()
+    };
+
+    snapshot.commitments[index] = updated;
+    await this.save(snapshot);
+    return updated;
+  }
+
   async getCommitment(id: string): Promise<CommitmentRecord | undefined> {
     const snapshot = await this.load();
     return snapshot.commitments.find((item) => item.id === id);
@@ -115,7 +189,46 @@ export class JsonFileStore implements CeoStore {
   async listDueCommitments(now: Date): Promise<CommitmentRecord[]> {
     const snapshot = await this.load();
     return snapshot.commitments.filter(
-      (item) => item.status === "pending" && new Date(item.dueAt).getTime() <= now.getTime()
+      (item) =>
+        item.status === "pending" &&
+        !item.followUpSentAt &&
+        new Date(item.dueAt).getTime() <= now.getTime()
     );
+  }
+
+  async getUserSession(userId: string): Promise<UserSessionRecord> {
+    const snapshot = await this.load();
+    const existing = snapshot.sessions?.[userId];
+    if (existing) {
+      return existing;
+    }
+    return {
+      userId,
+      conversationState: "IDLE",
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  async saveUserSession(session: UserSessionRecord): Promise<UserSessionRecord> {
+    const snapshot = await this.load();
+    if (!snapshot.sessions) snapshot.sessions = {};
+    const updated: UserSessionRecord = {
+      ...session,
+      updatedAt: new Date().toISOString()
+    };
+    snapshot.sessions[session.userId] = updated;
+    await this.save(snapshot);
+    return updated;
+  }
+
+  async saveUserRouting(userId: string, routing: UserRouting): Promise<void> {
+    const session = await this.getUserSession(userId);
+    session.routing = routing;
+    await this.saveUserSession(session);
+  }
+
+  async listActiveRoutingSessions(): Promise<UserSessionRecord[]> {
+    const snapshot = await this.load();
+    return Object.values(snapshot.sessions || {}).filter((s) => s.routing?.spaceId);
   }
 }

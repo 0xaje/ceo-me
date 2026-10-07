@@ -1,15 +1,16 @@
 import { resolve } from "node:path";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
+import { ProactiveSchedulerWorker, type TransportSender } from "./scheduler.js";
 import { CeoMeService } from "./service.js";
 import { JsonFileStore } from "./store.js";
 
-const projectId = process.env.PROJECT_ID;
-const projectSecret = process.env.PROJECT_SECRET;
+const projectId = process.env.SPECTRUM_PROJECT_ID ?? process.env.PROJECT_ID;
+const projectSecret = process.env.SPECTRUM_PROJECT_SECRET ?? process.env.PROJECT_SECRET;
 
 if (!projectId || !projectSecret) {
   console.error(
-    "Missing Photon credentials. Set PROJECT_ID and PROJECT_SECRET before running npm run photon."
+    "Missing Photon credentials. Set SPECTRUM_PROJECT_ID (or PROJECT_ID) and SPECTRUM_PROJECT_SECRET (or PROJECT_SECRET) before running npm run photon."
   );
   process.exit(1);
 }
@@ -23,7 +24,54 @@ const app = await Spectrum({
   providers: [imessage.config()]
 });
 
-console.log("CEO Me is listening for Photon iMessages...");
+const im = imessage(app);
+
+// In-memory cache of active Space instances per spaceId for real-time proactive delivery
+const activeSpaces = new Map<string, any>();
+
+// Real MessagingTransport using Spectrum/Photon iMessage provider
+const transport: TransportSender = {
+  async sendProactiveMessage(userId: string, text: string): Promise<boolean> {
+    const session = await store.getUserSession(userId);
+    const spaceId = session.routing?.spaceId;
+    if (!spaceId) {
+      console.warn(`No stored routing spaceId for user: ${userId}`);
+      return false;
+    }
+
+    try {
+      // 1. Try in-memory cached space from active session
+      let space = activeSpaces.get(spaceId);
+
+      // 2. If not in memory, re-hydrate via im.space.get(spaceId)
+      if (!space) {
+        space = await im.space.get(spaceId);
+        activeSpaces.set(spaceId, space);
+      }
+
+      if (!space || typeof space.send !== "function") {
+        console.error(`Unable to resolve space for spaceId: ${spaceId}`);
+        return false;
+      }
+
+      await space.responding(async () => {
+        await space.send(text);
+      });
+
+      console.log(`[PROACTIVE] Sent follow-up to user ${userId} in space ${spaceId}`);
+      return true;
+    } catch (err) {
+      console.error(`[PROACTIVE] Failed to send message to ${userId}:`, err);
+      return false;
+    }
+  }
+};
+
+// Start proactive background scheduler (runs check every 5 seconds)
+const schedulerWorker = new ProactiveSchedulerWorker(store, transport, 5000);
+schedulerWorker.start();
+
+console.log("CEO Me is listening for Photon iMessages (with proactive follow-up worker enabled)...");
 
 for await (const [space, message] of app.messages) {
   if (message.direction === "outbound") continue;
@@ -34,32 +82,40 @@ for await (const [space, message] of app.messages) {
 
   const userId = message.sender?.id ?? `imessage-space:${space.id}`;
 
+  // Keep space in memory for proactive follow-ups
+  activeSpaces.set(space.id, space);
+
+  // Persist routing identity to disk
+  await store.saveUserRouting(userId, {
+    spaceId: space.id,
+    platform: "imessage",
+    phone: (space as any).phone,
+    updatedAt: new Date().toISOString()
+  });
+
   try {
-    await message.react("👍");
+    // Quick ping check
+    if (text.toLowerCase() === "ping") {
+      await message.react("👍");
+      await space.responding(async () => {
+        await message.reply("CEO Me is online.");
+      });
+      continue;
+    }
+
+    // Process conversational flow
+    const result = await service.processMessage(userId, text);
+
+    if (result.reaction) {
+      try {
+        await message.react(result.reaction);
+      } catch {
+        // Tapback is best-effort
+      }
+    }
 
     await space.responding(async () => {
-      if (text.toLowerCase() === "ping") {
-        await message.reply("CEO Me is online.");
-        return;
-      }
-
-      const { board } = await service.evaluate(userId, text);
-
-      const seats = board.seats
-        .map((seat) => seat.replaceAll("_", " ").toUpperCase())
-        .join(" · ");
-
-      const commitment = board.suggestedCommitment
-        ? `\n\nSUGGESTED COMMITMENT\n${board.suggestedCommitment}`
-        : "";
-
-      const response =
-        `BOARD\n${seats}\n\n` +
-        `CEO VERDICT\n${board.verdict}\n\n` +
-        `FIRST MOVE\n${board.firstAction}` +
-        commitment;
-
-      await message.reply(response);
+      await message.reply(result.reply);
     });
   } catch (error) {
     console.error("Failed to process inbound Photon message:", error);
@@ -69,7 +125,7 @@ for await (const [space, message] of app.messages) {
         "The Board hit an internal error. Nothing was recorded as completed."
       );
     } catch {
-      // If the transport itself failed, do not pretend a reply was delivered.
+      // If transport failed, ignore secondary error
     }
   }
 }
