@@ -1,9 +1,12 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { resolve } from "node:path";
+import { loadEnvFile } from "./env.js";
 import { CeoMeService } from "./service.js";
 import { collectDueFollowUps } from "./scheduler.js";
 import { JsonFileStore } from "./store.js";
+
+loadEnvFile();
 
 const rl = createInterface({ input, output });
 const store = new JsonFileStore(resolve("data/ceo-me.json"));

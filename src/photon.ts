@@ -1,9 +1,12 @@
 import { resolve } from "node:path";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
+import { loadEnvFile } from "./env.js";
 import { ProactiveSchedulerWorker, type TransportSender } from "./scheduler.js";
 import { CeoMeService } from "./service.js";
 import { JsonFileStore } from "./store.js";
+
+loadEnvFile();
 
 const projectId = process.env.SPECTRUM_PROJECT_ID ?? process.env.PROJECT_ID;
 const projectSecret = process.env.SPECTRUM_PROJECT_SECRET ?? process.env.PROJECT_SECRET;
