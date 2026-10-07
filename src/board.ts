@@ -343,37 +343,23 @@ export class DynamicBoardEngine implements BoardReasoningEngine {
       `Active Board Seats to include: ${input.selectedSeats.join(", ")}.\n` +
       `Evaluate the tradeoff and provide your ruling.`;
 
-    // Attempt 1
-    let structured = await this.provider.generateStructured<BoardVerdict>(
+    const startTime = Date.now();
+    console.log(`[BOARD] ${this.provider.providerName} attempt starting`);
+
+    const structured = await this.provider.generateStructured<BoardVerdict>(
       systemPrompt,
       userPrompt,
       (val) => validateBoardOutput(val, input.selectedSeats)
     );
 
-    // Attempt 2: Repair prompt if attempt 1 failed quality validation
-    if (!structured) {
-      const repairPrompt =
-        `${userPrompt}\n\n` +
-        `CRITICAL QUALITY REPAIR:\n` +
-        `Your previous response was rejected for corporate filler, contradiction, or vague non-measurable commitment.\n` +
-        `Rules:\n` +
-        `- No filler phrases ('mutually acceptable', 'find a balance', etc.)\n` +
-        `- Verdict <= 2 sentences, FirstAction <= 2 sentences, SuggestedCommitment <= 1 sentence.\n` +
-        `- SuggestedCommitment MUST start with a concrete action verb (e.g. 'Send...', 'Ship...', 'Write...', 'Decline...').\n` +
-        `- Output ONLY valid JSON matching the schema.`;
-
-      structured = await this.provider.generateStructured<BoardVerdict>(
-        systemPrompt,
-        repairPrompt,
-        (val) => validateBoardOutput(val, input.selectedSeats)
-      );
-    }
+    const elapsed = Date.now() - startTime;
 
     if (structured) {
-      console.log(`[BOARD] ${this.provider.providerName}`);
+      console.log(`[BOARD] ${this.provider.providerName} valid in ${elapsed}ms`);
       return structured;
     }
 
+    console.log(`[BOARD] ${this.provider.providerName} invalid in ${elapsed}ms -> fallback`);
     console.log("[BOARD] fallback");
     return this.fallback.generateVerdict(input);
   }
