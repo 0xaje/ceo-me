@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "test": "vitest run",
+    "test": "OLLAMA_MODEL= OPENAI_API_KEY= vitest run",
     "test:watch": "vitest",
     "photon": "tsx src/photon.ts"
   },
