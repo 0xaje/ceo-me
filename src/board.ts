@@ -1,4 +1,8 @@
 import type { BoardSeat, BoardVerdict } from "./domain.js";
+import {
+  resolveConfiguredProvider,
+  type StructuredReasoningProvider
+} from "./llm/ollama.js";
 
 export interface BoardReasoningInput {
   userMessage: string;
@@ -10,6 +14,14 @@ export interface BoardReasoningInput {
 export interface BoardReasoningEngine {
   generateVerdict(input: BoardReasoningInput): Promise<BoardVerdict>;
 }
+
+export const VALID_BOARD_SEATS: Set<BoardSeat> = new Set([
+  "future_you",
+  "cfo",
+  "operator",
+  "creative",
+  "chaos_intern"
+]);
 
 export function selectBoard(input: string): BoardSeat[] {
   const text = input.toLowerCase();
@@ -30,16 +42,64 @@ export function selectBoard(input: string): BoardSeat[] {
 }
 
 /**
+ * Validate LLM Board Output against canonical rules
+ */
+export function validateBoardOutput(
+  val: unknown,
+  allowedSeats: BoardSeat[]
+): BoardVerdict | null {
+  if (!val || typeof val !== "object") return null;
+  const obj = val as Record<string, unknown>;
+
+  if (
+    typeof obj.verdict !== "string" ||
+    !obj.verdict.trim() ||
+    typeof obj.firstAction !== "string" ||
+    !obj.firstAction.trim()
+  ) {
+    return null;
+  }
+
+  const allowedSet = new Set(allowedSeats);
+  let perspectives: { seat: BoardSeat; opinion: string }[] | undefined;
+
+  if (Array.isArray(obj.perspectives)) {
+    perspectives = [];
+    for (const p of obj.perspectives) {
+      if (
+        p &&
+        typeof p === "object" &&
+        typeof p.seat === "string" &&
+        VALID_BOARD_SEATS.has(p.seat as BoardSeat) &&
+        allowedSet.has(p.seat as BoardSeat) &&
+        typeof p.opinion === "string"
+      ) {
+        perspectives.push({ seat: p.seat as BoardSeat, opinion: p.opinion.trim() });
+      }
+    }
+  }
+
+  return {
+    seats: allowedSeats,
+    perspectives: perspectives && perspectives.length > 0 ? perspectives : undefined,
+    verdict: obj.verdict.trim(),
+    firstAction: obj.firstAction.trim(),
+    suggestedCommitment:
+      typeof obj.suggestedCommitment === "string" && obj.suggestedCommitment.trim()
+        ? obj.suggestedCommitment.trim()
+        : obj.firstAction.trim()
+  };
+}
+
+/**
  * Deterministic Baseline Board Reasoning
- * Handles general Muse dilemmas (money, multi-task prioritization, buying/waiting, scope)
- * without requiring hardcoded demo strings.
  */
 export class DeterministicBoardEngine implements BoardReasoningEngine {
   async generateVerdict(input: BoardReasoningInput): Promise<BoardVerdict> {
     const text = input.userMessage.toLowerCase();
     const seats = input.selectedSeats;
 
-    // 1. Two hackathons / competing priorities / multiple tasks
+    // 1. Competing priorities / multiple tasks
     if (/two|which one|prioriti|hackathon|project a or project b|choose between/.test(text)) {
       return {
         seats,
@@ -112,67 +172,51 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
 }
 
 /**
- * Dynamic LLM Board Engine
- * Connects to LLM (if OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY is configured).
- * Falls back to DeterministicBoardEngine automatically if no LLM is configured or on failure.
+ * Dynamic Board Engine supporting Ollama & Cloud LLM with automatic fallback
  */
 export class DynamicBoardEngine implements BoardReasoningEngine {
   private fallback = new DeterministicBoardEngine();
 
-  async generateVerdict(input: BoardReasoningInput): Promise<BoardVerdict> {
-    // LLM Provider check (OpenAI / Gemini / Anthropic)
-    const apiKey =
-      process.env.OPENAI_API_KEY ||
-      process.env.GEMINI_API_KEY ||
-      process.env.ANTHROPIC_API_KEY;
+  constructor(
+    private readonly provider: StructuredReasoningProvider | null = resolveConfiguredProvider()
+  ) {}
 
-    if (!apiKey) {
+  async generateVerdict(input: BoardReasoningInput): Promise<BoardVerdict> {
+    if (!this.provider) {
+      console.log("[BOARD] deterministic");
       return this.fallback.generateVerdict(input);
     }
 
-    try {
-      if (process.env.OPENAI_API_KEY) {
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            response_format: { type: "json_object" },
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You are CEO Me, a personal board of directors. Return JSON with: seats (array), perspectives (array of {seat, opinion}), verdict (short, punchy, calm, decisive), firstAction (concrete next step), suggestedCommitment (short sentence to commit to)."
-              },
-              {
-                role: "user",
-                content: JSON.stringify(input)
-              }
-            ]
-          })
-        });
+    const systemPrompt =
+      "You are CEO Me, a personal board of directors. Your voice is calm, decisive, intelligent, concise, and slightly witty. " +
+      "Never use corporate jargon, therapy speak, or generic advice. Lower cognitive load. Resolve internal disagreements.\n" +
+      "Board Seats:\n" +
+      "- OPERATOR: Execution, scope, deadlines, operational reality.\n" +
+      "- FUTURE YOU: Long-term consequences, identity, opportunity cost.\n" +
+      "- CFO: Money, runway, risk, value, resource allocation.\n" +
+      "- CREATIVE: Presentation, brand perception, original angle.\n" +
+      "- CHAOS INTERN: Bold, unconventional, non-obvious intervention.\n\n" +
+      "Return JSON matching:\n" +
+      "{\n" +
+      "  \"perspectives\": [{\"seat\": \"operator\", \"opinion\": \"...\"}],\n" +
+      "  \"verdict\": \"Short, decisive verdict resolving the seats\",\n" +
+      "  \"firstAction\": \"One concrete, measurable first move\",\n" +
+      "  \"suggestedCommitment\": \"Single sentence the user can commit to\"\n" +
+      "}\n" +
+      "DO NOT add any seats outside the selected seats list.";
 
-        if (response.ok) {
-          const json = await response.json();
-          const parsed = JSON.parse(json.choices[0].message.content);
-          if (parsed.verdict && parsed.firstAction) {
-            return {
-              seats: input.selectedSeats,
-              perspectives: parsed.perspectives,
-              verdict: parsed.verdict,
-              firstAction: parsed.firstAction,
-              suggestedCommitment: parsed.suggestedCommitment || parsed.firstAction
-            };
-          }
-        }
-      }
-    } catch {
-      // Fallback safely on any error
+    const structured = await this.provider.generateStructured<BoardVerdict>(
+      systemPrompt,
+      input,
+      (val) => validateBoardOutput(val, input.selectedSeats)
+    );
+
+    if (structured) {
+      console.log(`[BOARD] ${this.provider.providerName}`);
+      return structured;
     }
 
+    console.log("[BOARD] fallback");
     return this.fallback.generateVerdict(input);
   }
 }

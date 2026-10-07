@@ -10,6 +10,10 @@ import type {
   UserSessionRecord
 } from "./domain.js";
 import {
+  resolveConfiguredProvider,
+  type StructuredReasoningProvider
+} from "./llm/ollama.js";
+import {
   TwoLayerIntentRouter,
   type IntentClassifier
 } from "./router.js";
@@ -27,7 +31,8 @@ export class CeoMeService {
   constructor(
     private readonly store: CeoStore,
     private readonly boardEngine: BoardReasoningEngine = new DynamicBoardEngine(),
-    private readonly router: IntentClassifier = new TwoLayerIntentRouter()
+    private readonly router: IntentClassifier = new TwoLayerIntentRouter(),
+    private readonly reasoningProvider: StructuredReasoningProvider | null = resolveConfiguredProvider()
   ) {}
 
   async evaluate(userId: string, input: string) {
@@ -170,15 +175,9 @@ export class CeoMeService {
     if (classified.intent === "ASK_EXPLANATION") {
       const lower = text.toLowerCase();
       let answer = "";
-      if (lower.includes("future you")) {
-        answer = "Because this decision has a long-term tradeoff.";
-      } else if (lower.includes("cfo")) {
-        answer = "Because resource allocation and cash runway are on the line.";
-      } else if (lower.includes("creative")) {
-        answer = "Because presentation, tone, and brand perception matter here.";
-      } else if (lower.includes("operator")) {
-        answer = "Because someone has to keep scope tight and ensure execution.";
-      } else if (
+
+      // Check for agreement queries first
+      if (
         lower.includes("what exactly did i agree to") ||
         lower.includes("what did i commit to") ||
         lower.includes("what was my task")
@@ -189,11 +188,56 @@ export class CeoMeService {
         } else {
           answer = "You don't currently have an active commitment.";
         }
-      } else {
-        answer =
-          activeDecision?.verdict
-            ? `The Board chose this because: ${activeDecision.verdict}`
-            : "The Board focuses on irreversible steps over endless planning.";
+      } else if (this.reasoningProvider && activeDecision) {
+        // Dynamic contextual explanation using provider
+        const explanationSystem =
+          "You are CEO Me. The user is asking a question about a previous decision or why certain Board members voted a certain way. " +
+          "Answer concisely in 1-2 sharp sentences grounded strictly in the provided decision, seats, and verdict. " +
+          "Return JSON: { \"answer\": \"...\" }";
+
+        const explanationInput = {
+          userQuestion: text,
+          decisionInput: activeDecision.input,
+          seats: activeDecision.seats,
+          verdict: activeDecision.verdict,
+          firstAction: activeDecision.firstAction,
+          commitment: activeCommitment?.commitment
+        };
+
+        const res = await this.reasoningProvider.generateStructured<{ answer: string }>(
+          explanationSystem,
+          explanationInput,
+          (val) => {
+            if (val && typeof val === "object" && typeof (val as any).answer === "string") {
+              return { answer: (val as any).answer.trim() };
+            }
+            return null;
+          }
+        );
+
+        if (res?.answer) {
+          answer = res.answer;
+        }
+      }
+
+      // Fallback deterministic explanations
+      if (!answer) {
+        if (lower.includes("future you") && lower.includes("cfo")) {
+          answer = "Future You protects your compounding energy; CFO protects your pricing leverage. They align on not selling weekends cheap.";
+        } else if (lower.includes("future you")) {
+          answer = "Because this decision has a long-term tradeoff.";
+        } else if (lower.includes("cfo")) {
+          answer = "Because resource allocation and cash runway are on the line.";
+        } else if (lower.includes("creative")) {
+          answer = "Because presentation, tone, and brand perception matter here.";
+        } else if (lower.includes("operator")) {
+          answer = "Because someone has to keep scope tight and ensure execution.";
+        } else {
+          answer =
+            activeDecision?.verdict
+              ? `The Board chose this because: ${activeDecision.verdict}`
+              : "The Board focuses on irreversible steps over endless planning.";
+        }
       }
 
       // Preserve current pending state
@@ -320,6 +364,15 @@ export class CeoMeService {
           commitment
         };
       }
+
+      // If user shares personal constraint (e.g., promised family to stop early)
+      const lower = text.toLowerCase();
+      if (lower.includes("promise") || lower.includes("family") || lower.includes("stop working") || lower.includes("tonight")) {
+        return {
+          reply: "Understood. Protect that boundary. What deadline tomorrow works for this instead?",
+          session
+        };
+      }
     }
 
     // STATE: COMMITMENT_ACTIVE / BLOCKED / FOLLOW_UP_DUE / AWAITING_OUTCOME
@@ -329,11 +382,20 @@ export class CeoMeService {
       session.conversationState === "FOLLOW_UP_DUE" ||
       session.conversationState === "AWAITING_OUTCOME"
     ) {
-      // 1. Task modification ("actually change the task to finish only the scheduler")
-      if (classified.intent === "MODIFY_COMMITMENT" && classified.commitmentModification && activeCommitment) {
+      // 1. Task modification ("actually change the task to finish only the scheduler", "Board misunderstood me...")
+      if (
+        (classified.intent === "MODIFY_COMMITMENT" || text.toLowerCase().includes("misunderstood")) &&
+        activeCommitment
+      ) {
+        const newTask =
+          classified.commitmentModification ||
+          (text.toLowerCase().includes("only meant")
+            ? text.slice(text.toLowerCase().indexOf("only meant") + 10).trim()
+            : text.trim());
+
         const updated = await this.store.updateCommitmentTask(
           activeCommitment.id,
-          classified.commitmentModification
+          newTask
         );
         return {
           reply: `Commitment updated to: "${updated.commitment}".\n\nDeadline remains ${formatDeadline(updated.dueAt)}.`,
