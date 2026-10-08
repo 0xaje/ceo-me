@@ -478,20 +478,20 @@ export class DynamicBoardEngine implements BoardReasoningEngine {
       "3. The verdict must make ONE clear call. No contradictory recommendations.\n" +
       "4. The firstAction must directly execute the verdict (e.g. if verdict says negotiate terms, firstAction must draft/send those terms).\n" +
       "5. The suggestedCommitment must be exactly ONE measurable sentence containing an active verb (e.g. 'Send...', 'Ship...', 'Write...', 'Decline...').\n\n" +
-      "Return ONLY a JSON object:\n" +
+      "Keep opinions brief so JSON is complete and valid. Return ONLY a JSON object:\n" +
       "{\n" +
       "  \"perspectives\": [\n" +
-      "    {\"seat\": \"<seat_name>\", \"opinion\": \"<one punchy sentence from this seat's angle>\"}\n" +
+      "    {\"seat\": \"<seat_name>\", \"opinion\": \"<short punchy sentence>\"}\n" +
       "  ],\n" +
-      "  \"verdict\": \"<1-2 decisive sentences resolving the tradeoff>\",\n" +
-      "  \"firstAction\": \"<1-2 concrete action sentences implementing the verdict>\",\n" +
+      "  \"verdict\": \"<1 decisive sentence resolving the tradeoff>\",\n" +
+      "  \"firstAction\": \"<1 concrete action sentence>\",\n" +
       "  \"suggestedCommitment\": \"<single actionable commitment sentence with concrete verb>\"\n" +
       "}";
 
     const userPrompt =
       `Dilemma: "${input.userMessage}"\n` +
-      `Active Board Seats to include: ${input.selectedSeats.join(", ")}.\n` +
-      `Evaluate the tradeoff and provide your ruling.`;
+      `Active Board Seats: ${input.selectedSeats.slice(0, 2).join(", ")}.\n` +
+      `Evaluate the tradeoff concisely and provide your ruling.`;
 
     const startTime = Date.now();
     console.log(`[BOARD] ${this.provider.providerName} attempt starting`);

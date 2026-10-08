@@ -32,7 +32,7 @@ export class OllamaReasoningProvider implements StructuredReasoningProvider {
     this.baseUrl = (options.baseUrl || "http://127.0.0.1:11434").replace(/\/+$/, "");
     this.model = options.model;
     const envTimeout = process.env.OLLAMA_TIMEOUT_MS ? parseInt(process.env.OLLAMA_TIMEOUT_MS, 10) : NaN;
-    this.timeoutMs = options.timeoutMs ?? (!isNaN(envTimeout) ? envTimeout : 20000);
+    this.timeoutMs = options.timeoutMs ?? (!isNaN(envTimeout) ? envTimeout : 30000);
   }
 
   async generateStructured<T>(
@@ -67,7 +67,8 @@ export class OllamaReasoningProvider implements StructuredReasoningProvider {
           keep_alive: "60m",
           options: {
             temperature: 0.1,
-            num_predict: 350
+            num_predict: 220,
+            num_thread: 4
           }
         })
       });
