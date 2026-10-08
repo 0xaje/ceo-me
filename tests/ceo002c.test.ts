@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DynamicBoardEngine,
+  selectBoard,
   validateBoardOutput
 } from "../src/board.js";
 import type { BoardVerdict } from "../src/domain.js";
@@ -372,8 +373,128 @@ describe("CEO-002C Local Ollama Reasoning & Provider Adapter", () => {
         selectedSeats: ["operator", "future_you"]
       });
 
-      expect(res.verdict).toBe("Choose the option that preserves maximum future optionality and execution velocity.");
-      expect(res.suggestedCommitment).toBe("Execute the critical path action before moving to secondary tasks");
+      expect(res.verdict).toBe("Preserve reversibility on the high-uncertainty path while taking the single immediate low-risk step.");
+      expect(res.suggestedCommitment).toBe("Decide on the decision criteria today and execute the next step");
     });
+
+    it("E. Partnership dilemma does not trigger equipment fast path and reaches Ollama", async () => {
+      let providerCalled = false;
+      const trackingProvider: StructuredReasoningProvider = {
+        providerName: "tracking-ollama",
+        async generateStructured<T>(_sys: string, _inp: unknown, validator: (v: unknown) => T | null) {
+          providerCalled = true;
+          return validator({
+            perspectives: [
+              { seat: "operator", opinion: "Do not announce unexecuted deals." },
+              { seat: "future_you", opinion: "Reputation compounds negatively if it falls through." }
+            ],
+            verdict: "Do not announce until the contract is signed.",
+            firstAction: "Send final signature request to the partner with a 48-hour deadline.",
+            suggestedCommitment: "Decide to hold partnership announcement until paperwork is fully executed"
+          });
+        }
+      };
+
+      const boardEngine = new DynamicBoardEngine(trackingProvider);
+      const partnershipInput = "My cofounder wants us to announce a partnership before the paperwork is signed because the attention could help us close investors. I think waiting is safer, but waiting may cost us momentum. What should we do?";
+      const seats = selectBoard(partnershipInput);
+      const res = await boardEngine.generateVerdict({
+        userMessage: partnershipInput,
+        selectedSeats: seats
+      });
+
+      expect(providerCalled).toBe(true);
+      expect(res.verdict).toContain("Do not announce until the contract is signed.");
+      // Ensure it did not trigger hardware/equipment advice
+      expect(res.verdict).not.toContain("hardware");
+      expect(res.verdict).not.toContain("machine");
+      expect(res.verdict).not.toContain("laptop");
+    });
+
+    describe("Unfamiliar Fallback Grounding & Quality Categories", () => {
+      const failingProvider: StructuredReasoningProvider = {
+        providerName: "failing-ollama",
+        async generateStructured() {
+          return null;
+        }
+      };
+      const boardEngine = new DynamicBoardEngine(failingProvider);
+
+      it("A. partnership announcement before signing grounds in partnership and signing terms", async () => {
+        const input = "My cofounder wants us to announce a partnership before the paperwork is signed because the attention could help us close investors. I think waiting is safer, but waiting may cost us momentum. What should we do?";
+        const seats = selectBoard(input);
+        const res = await boardEngine.generateVerdict({
+          userMessage: input,
+          selectedSeats: seats
+        });
+
+        expect(res.verdict).toContain("partnership");
+        expect(res.verdict).toContain("paperwork is signed");
+        expect(res.firstAction).toContain("the partnership announcement");
+        expect(res.suggestedCommitment).toContain("Draft the partnership announcement");
+      });
+
+      it("B. launching before approval grounds in approval terms", async () => {
+        const input = "Should we launch the feature publicly before executive approval is confirmed?";
+        const seats = selectBoard(input);
+        const res = await boardEngine.generateVerdict({
+          userMessage: input,
+          selectedSeats: seats
+        });
+
+        expect(res.verdict).toContain("approval is confirmed");
+        expect(res.firstAction).toContain("approval is confirmed");
+        expect(res.suggestedCommitment).toContain("approval is confirmed");
+      });
+
+      it("C. revealing a deal before confirmation grounds in deal confirmation terms", async () => {
+        const input = "We want to reveal the deal to the press before confirmation is complete to beat a competitor.";
+        const seats = selectBoard(input);
+        const res = await boardEngine.generateVerdict({
+          userMessage: input,
+          selectedSeats: seats
+        });
+
+        expect(res.verdict).toContain("the deal");
+        expect(res.verdict).toContain("confirmation is complete");
+        expect(res.firstAction).toContain("the deal announcement");
+        expect(res.suggestedCommitment).toContain("Draft the deal announcement");
+      });
+
+      it("D. a genuinely unfamiliar dilemma grounds in reversible decision criteria", async () => {
+        const input = "Should I paint my office walls terracotta or sage green?";
+        const seats = selectBoard(input);
+        const res = await boardEngine.generateVerdict({
+          userMessage: input,
+          selectedSeats: seats
+        });
+
+        expect(res.verdict).toContain("Preserve reversibility");
+        expect(res.firstAction).toContain("Write down the exact decision criteria");
+        expect(res.suggestedCommitment).toContain("Decide on the decision criteria");
+      });
+    });
+
+    it("F. Live Ollama benchmark with qwen2.5:1.5b on partnership dilemma", async () => {
+      if (process.env.RUN_LIVE_OLLAMA !== "true") {
+        return; // Skipped unless RUN_LIVE_OLLAMA=true
+      }
+      process.env.OLLAMA_MODEL = "qwen2.5:1.5b";
+      process.env.OLLAMA_BASE_URL = "http://127.0.0.1:11434";
+      const partnershipInput = "My cofounder wants us to announce a partnership before the paperwork is signed because the attention could help us close investors. I think waiting is safer, but waiting may cost us momentum. What should we do?";
+      const seats = selectBoard(partnershipInput);
+      const boardEngine = new DynamicBoardEngine();
+      const start = Date.now();
+      const result = await boardEngine.generateVerdict({
+        userMessage: partnershipInput,
+        selectedSeats: seats
+      });
+      const duration = Date.now() - start;
+      console.log("\n[LIVE BENCHMARK RESULT]");
+      console.log("Duration:", duration, "ms");
+      console.log("Verdict:", JSON.stringify(result, null, 2));
+      expect(result).toBeDefined();
+      expect(result.verdict).not.toContain("hardware");
+    }, 60000);
   });
 });

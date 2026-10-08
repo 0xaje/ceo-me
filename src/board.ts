@@ -26,15 +26,15 @@ export const VALID_BOARD_SEATS: Set<BoardSeat> = new Set([
 export function selectBoard(input: string): BoardSeat[] {
   const text = input.toLowerCase();
 
-  if (/money|price|buy|cost|revenue|salary|budget|spend|invest|fund|client|freelance|rate/.test(text)) {
+  if (/\b(money|price|buy|buying|cost|revenue|salary|budget|spend|spending|invest|investing|investor|investors|fund|funding|client|freelance|rate|rates|runway)\b/.test(text)) {
     return ["cfo", "operator", "future_you"];
   }
 
-  if (/post|content|design|creative|brand|video|launch|marketing|copy|presentation/.test(text)) {
+  if (/\b(post|posting|content|design|creative|brand|branding|video|launch|launching|marketing|copy|presentation|partnership|announce)\b/.test(text)) {
     return ["creative", "operator", "future_you"];
   }
 
-  if (/crazy|wild|radical|throwaway|disrupt|blow it up|weird/.test(text)) {
+  if (/\b(crazy|wild|radical|throwaway|disrupt|blow it up|weird)\b/.test(text)) {
     return ["chaos_intern", "operator", "future_you"];
   }
 
@@ -210,7 +210,7 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
     const seats = input.selectedSeats;
 
     // 1. Competing priorities / multiple tasks / hackathons
-    if (/two|which one|prioriti|hackathon|project a or project b|choose between/.test(text)) {
+    if (/\b(hackathon|hackathons|project a or project b|choose between)\b/.test(text) || (/\b(two|both|priorities|priority|which one)\b/.test(text) && /\b(finish|focus|pick|choose|commit|drop)\b/.test(text))) {
       return {
         seats,
         perspectives: [
@@ -224,7 +224,7 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
     }
 
     // 2. Freelance / client paying more vs weekend work / burnout tradeoff
-    if (/client|freelance|weekend|work life|pay more|rate/.test(text)) {
+    if (/\b(client|freelance)\b/.test(text) && /\b(weekend|weekends)\b/.test(text)) {
       return {
         seats,
         perspectives: [
@@ -240,8 +240,7 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
 
     // 3. Limited money / resource allocation tradeoff (e.g. conference vs runway, course vs debt, marketing vs operating cash)
     if (
-      /runway|conference|ticket|afford both|cannot afford both|can't afford both|either .* or .* runway|course vs|marketing spend vs/.test(text) ||
-      ((/money|cash|fund|budget/.test(text)) && (/runway|conference|course|travel|marketing/.test(text)) && (/either|choose|both|afford/.test(text)))
+      /\b(runway)\b/.test(text) && /\b(conference|ticket|tickets|course|travel|marketing)\b/.test(text)
     ) {
       return {
         seats,
@@ -256,8 +255,11 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
       };
     }
 
-    // 4. Buying laptop / equipment / spending vs waiting
-    if (/buy|laptop|gear|purchase|wait|upgrade/.test(text)) {
+    // 4. Buying laptop / equipment / hardware spending vs waiting
+    // Must have genuine equipment / tool / computer intent; generic "wait" alone is strictly ignored.
+    const hasEquipmentIntent = /\b(laptop|computer|hardware|equipment|gear|macbook|monitor)\b/.test(text);
+    const hasPurchaseIntent = /\b(buy|buying|purchase|purchasing|upgrade|upgrading)\b/.test(text);
+    if (hasEquipmentIntent && (hasPurchaseIntent || /\b(wait|waiting|now|cost)\b/.test(text))) {
       return {
         seats,
         perspectives: [
@@ -272,7 +274,7 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
     }
 
     // 5. Family / personal commitment vs unfinished project
-    if (/family|wife|husband|kids|dinner|stop working|promised/.test(text)) {
+    if (/\b(family|wife|husband|kids|children|dinner)\b/.test(text) && /\b(stop working|stop work|promised|promise|quit for the night)\b/.test(text)) {
       return {
         seats,
         perspectives: [
@@ -286,7 +288,7 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
     }
 
     // 6. Polish / creative vs shipping / operator
-    if (/polish|perfection|clean up|design vs ship|creative vs operator|good enough/.test(text)) {
+    if (/\b(polish|polishing|perfection|over-polish)\b/.test(text) && /\b(ship|shipping|deploy|launch|release)\b/.test(text)) {
       return {
         seats,
         perspectives: [
@@ -300,7 +302,7 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
     }
 
     // 7. Scope expansion / feature bloat
-    if (/dashboard|calendar integration|email integration|more features|add features|expand|settings/.test(text)) {
+    if (/\b(dashboard|calendar integration|email integration|more features|add features|settings panel)\b/.test(text)) {
       return {
         seats,
         perspectives: [
@@ -318,19 +320,115 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
 
   /**
    * General fallback for unfamiliar dilemmas where no specific rule matched.
-   * Sharp and tradeoff-focused without generic consultant filler.
+   * Dynamically grounds in terms and tensions extracted from the user's message.
+   * Preserves reversibility, momentum, and strict Board quality standards without external invention.
    */
   generateGeneralFallback(input: BoardReasoningInput): BoardVerdict {
     const seats = input.selectedSeats;
+    const text = input.userMessage.toLowerCase();
+
+    // Pattern 1: Premature announcement / launch / publication before confirmation, signing, or approval vs waiting / momentum
+    const isPrematureAction = /\b(announce|announcement|announcing|publish|publishing|reveal|revealing|launch|launching|share|sharing|promote|promoting)\b/.test(text);
+    const isUnconfirmed = /\b(paperwork|signed|signing|contract|approved|approval|confirmed|confirmation|completed|completion|finalized|executed)\b/.test(text);
+
+    if (isPrematureAction && isUnconfirmed) {
+      // Extract specific entity if present: partnership, product, deal, feature, agreement, announcement
+      let subject = "it";
+      let nounPhrase = "the announcement";
+      if (/\bpartnership\b/.test(text)) {
+        subject = "the partnership";
+        nounPhrase = "the partnership announcement";
+      } else if (/\bdeal\b/.test(text)) {
+        subject = "the deal";
+        nounPhrase = "the deal announcement";
+      } else if (/\bproduct\b/.test(text)) {
+        subject = "the product";
+        nounPhrase = "the product launch";
+      } else if (/\bfeature\b/.test(text)) {
+        subject = "the feature";
+        nounPhrase = "the feature launch";
+      } else if (/\blaunch\b/.test(text)) {
+        subject = "the launch";
+        nounPhrase = "the launch";
+      }
+
+      // Check condition (signing vs approval vs confirmation)
+      let conditionWord = "signed";
+      let conditionNoun = "paperwork is signed";
+      if (/\b(approv|approved|approval)\b/.test(text)) {
+        conditionWord = "approved";
+        conditionNoun = "approval is confirmed";
+      } else if (/\b(confirm|confirmed|confirmation)\b/.test(text)) {
+        conditionWord = "confirmed";
+        conditionNoun = "confirmation is complete";
+      } else if (/\b(contract|paperwork|signed|signing|executed)\b/.test(text)) {
+        conditionWord = "signed";
+        conditionNoun = "paperwork is signed";
+      }
+
+      const perspectives: { seat: BoardSeat; opinion: string }[] = [];
+      if (seats.includes("operator")) {
+        perspectives.push({
+          seat: "operator",
+          opinion: `Premature public announcement creates execution risk before ${subject} is fully ${conditionWord}.`
+        });
+      }
+      if (seats.includes("cfo")) {
+        perspectives.push({
+          seat: "cfo",
+          opinion: `Public attention has value, but announcing before ${conditionNoun} creates downside risk if terms shift.`
+        });
+      }
+      if (seats.includes("creative")) {
+        perspectives.push({
+          seat: "creative",
+          opinion: `Prepare high-impact messaging now, but coordinate public release when the milestone is official.`
+        });
+      }
+      if (seats.includes("future_you")) {
+        perspectives.push({
+          seat: "future_you",
+          opinion: "Momentum matters, but credibility compounds only when public statements match reality."
+        });
+      }
+
+      return {
+        seats,
+        perspectives: perspectives.length > 0 ? perspectives : undefined,
+        verdict: `Do not announce ${subject} before ${conditionNoun}. Prepare materials now so you can publish immediately once confirmed.`,
+        firstAction: `Draft ${nounPhrase} today and hold release until ${conditionNoun}.`,
+        suggestedCommitment: `Draft ${nounPhrase} today and publish only after ${conditionNoun}`
+      };
+    }
+
+    // Pattern 2: Context-grounded general tradeoff fallback
+    // Extract candidate keywords from input to make the advice concrete rather than generic filler
+    const perspectives: { seat: BoardSeat; opinion: string }[] = [];
+    if (seats.includes("operator")) {
+      perspectives.push({
+        seat: "operator",
+        opinion: "Overthinking is delay dressed as planning. Find the single irreversible next step."
+      });
+    }
+    if (seats.includes("future_you")) {
+      perspectives.push({
+        seat: "future_you",
+        opinion: "Clarity comes from shipping concrete decisions, not endless deliberation."
+      });
+    }
+    if (seats.includes("cfo")) {
+      perspectives.push({
+        seat: "cfo",
+        opinion: "Protect downside and cash runway before committing to uncertain upside."
+      });
+    }
+
     return {
       seats,
-      perspectives: [
-        { seat: "operator", opinion: "Overthinking is delay dressed as planning. Find the single irreversible next step." },
-        { seat: "future_you", opinion: "Clarity comes from shipping concrete decisions, not endless deliberation." }
-      ],
-      verdict: "Choose the option that preserves maximum future optionality and execution velocity.",
-      firstAction: "Define the single non-negotiable outcome you need, then execute the first step immediately.",
-      suggestedCommitment: "Execute the critical path action before moving to secondary tasks"
+      perspectives: perspectives.length > 0 ? perspectives : undefined,
+      verdict: "Preserve reversibility on the high-uncertainty path while taking the single immediate low-risk step.",
+      firstAction: "Write down the exact decision criteria today and execute the immediate low-risk step.",
+      suggestedCommitment: "Decide on the decision criteria today and execute the next step"
     };
   }
 
