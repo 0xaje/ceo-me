@@ -69,7 +69,7 @@ export const FORBIDDEN_FILLER_PHRASES: string[] = [
 /**
  * Concrete action verbs required in commitments
  */
-const ACTION_VERBS = /\b(send|write|ship|build|call|cancel|sign|pay|deploy|finish|draft|cut|reject|accept|schedule|block|wire|publish|submit|deliver|decide|decline|review|kill|create|record|implement|negotiate)\b/i;
+const ACTION_VERBS = /\b(send|write|ship|build|call|cancel|sign|pay|deploy|finish|draft|cut|reject|accept|schedule|block|wire|publish|submit|deliver|decide|decline|review|kill|create|record|implement|negotiate|announce|hold)\b/i;
 
 function countSentences(text: string): number {
   const matches = text.match(/[^.!?]+[.!?]+(\s|$)/g);
