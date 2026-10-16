@@ -93,77 +93,6 @@ const MotionClip: React.FC<{
   );
 };
 
-// Organic Phone Screen Wake Compositing (Physical device realism without fake UI)
-const PhoneScreenWake: React.FC = () => {
-  const frame = useCurrentFrame();
-  // Frame 38 is when CEO's finger contacts the phone on the dark marble table
-  const touchFrame = 38;
-  const active = frame - touchFrame;
-  if (active < 0) return null;
-
-  // Screen wake illumination ramps in over 8 frames
-  const wakeOpacity = interpolate(active, [0, 8, 95, 125], [0, 1, 1, 0], {
-    extrapolateRight: 'clamp'
-  });
-
-  // Tracking offset as hand lifts phone toward CEO
-  const liftY = interpolate(active, [0, 32, 70], [0, 0, -22], {
-    extrapolateRight: 'clamp'
-  });
-  const liftX = interpolate(active, [0, 32, 70], [0, 0, -14], {
-    extrapolateRight: 'clamp'
-  });
-  const touchPulse = interpolate(active, [0, 6, 14], [1, 1.08, 1], {
-    extrapolateRight: 'clamp'
-  });
-
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        left: '54.2%',
-        top: '74.5%',
-        width: '10.8%',
-        height: '7.4%',
-        transform: `translate(${liftX}px, ${liftY}px) rotate(-16deg) scale(${touchPulse})`,
-        pointerEvents: 'none',
-        zIndex: 25,
-        opacity: wakeOpacity
-      }}
-    >
-      {/* Soft OLED tabletop screen wake - neutral/cool white display glow */}
-      <div
-        style={{
-          width: '100%',
-          height: '100%',
-          borderRadius: 8,
-          background:
-            'linear-gradient(135deg, rgba(235, 245, 255, 0.45) 0%, rgba(180, 210, 245, 0.3) 100%)',
-          boxShadow:
-            '0 0 24px rgba(190, 220, 255, 0.65), 0 0 45px rgba(160, 200, 255, 0.35)',
-          mixBlendMode: 'screen',
-          filter: 'blur(2px)'
-        }}
-      />
-      {/* Soft marble reflection & fingertip illumination */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '-15%',
-          left: '-20%',
-          width: '140%',
-          height: '130%',
-          borderRadius: '50%',
-          background:
-            'radial-gradient(circle, rgba(210, 230, 255, 0.25) 0%, transparent 70%)',
-          mixBlendMode: 'screen',
-          filter: 'blur(6px)'
-        }}
-      />
-    </div>
-  );
-};
-
 /* =========================================================================
    RESTRAINED SPATIAL TYPOGRAPHY
    Animates from the character's physical location in the room,
@@ -226,6 +155,57 @@ const SpatialCharacterTag: React.FC<{
         {lineage}
       </div>
     </div>
+  );
+};
+
+/* =========================================================================
+   CLEAN PRESSURE SIGNALS
+   Intentionally readable editorial signals replace/de-emphasize generated
+   pseudo-UI. No AI calendar copy is presented as meaningful information.
+   ========================================================================= */
+const PressureSignals: React.FC = () => {
+  const frame = useCurrentFrame();
+  const signals = [
+    {label: 'WORK', left: '10%', top: '20%', delay: 6},
+    {label: 'TIME', right: '12%', top: '22%', delay: 22},
+    {label: 'FAMILY', left: '9%', bottom: '24%', delay: 38},
+    {label: 'MONEY', right: '10%', bottom: '22%', delay: 54}
+  ];
+
+  return (
+    <AbsoluteFill style={{pointerEvents: 'none', zIndex: 42}}>
+      {signals.map((signal) => {
+        const active = frame - signal.delay;
+        const opacity = active < 0 ? 0 : interpolate(active, [0, 10, 45, 70], [0, 0.78, 0.78, 0.18], {
+          extrapolateLeft: 'clamp',
+          extrapolateRight: 'clamp'
+        });
+        const y = active < 0 ? 10 : interpolate(active, [0, 18], [10, 0], {extrapolateRight: 'clamp'});
+        return (
+          <div key={signal.label} style={{
+            position: 'absolute',
+            left: signal.left,
+            right: signal.right,
+            top: signal.top,
+            bottom: signal.bottom,
+            opacity,
+            transform: `translateY(${y}px)`,
+            padding: '9px 15px',
+            border: '1px solid rgba(226,160,82,0.38)',
+            borderRadius: 18,
+            background: 'rgba(5,7,12,0.82)',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.45)',
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 13,
+            fontWeight: 800,
+            letterSpacing: '4px',
+            color: 'rgba(255,255,255,0.86)'
+          }}>
+            {signal.label}
+          </div>
+        );
+      })}
+    </AbsoluteFill>
   );
 };
 
@@ -472,7 +452,7 @@ const CleanProductProofSlot: React.FC<{
               }}
             >
               {isFollowUp
-                ? '8:00 AM Morning Accountability'
+                ? 'Deadline-triggered accountability'
                 : 'Multi-Agent Board Deliberation'}
             </div>
             <div
@@ -719,6 +699,19 @@ export const Film: React.FC = () => {
         )}
       </Sequence>
 
+      {/* Tactile phone interaction micro-cues: contact, pickup, and tap feedback */}
+      {[428, 446, 466, 488].map((from, index) => (
+        <Sequence key={`phone-tap-${index}`} from={from} durationInFrames={12}>
+          {AUDIO_LAYERS.sfxPhoneHandling.enabled && (
+            <Audio
+              src={staticFile(AUDIO_LAYERS.sfxPhoneHandling.file)}
+              volume={index === 0 ? 0.46 : 0.30}
+              startFrom={index === 0 ? 0 : 8}
+            />
+          )}
+        </Sequence>
+      ))}
+
       {/* CFO pen on paper cue (f: 570) */}
       <Sequence from={570} durationInFrames={90}>
         {AUDIO_LAYERS.sfxPenPaper.enabled && (
@@ -782,9 +775,10 @@ export const Film: React.FC = () => {
             style={{
               pointerEvents: 'none',
               background:
-                'radial-gradient(ellipse at 32% 45%, transparent 35%, rgba(3,5,10,0.62) 75%)'
+                'radial-gradient(ellipse at 32% 45%, transparent 30%, rgba(3,5,10,0.82) 68%)'
             }}
           />
+          <PressureSignals />
           <PressureQuestionEmphasis />
         </MasterGradedScene>
       </Sequence>
@@ -803,7 +797,6 @@ export const Film: React.FC = () => {
             endSec={6.8}
             filter="brightness(0.98) contrast(1.05) saturate(0.95) hue-rotate(-2deg)"
           />
-          <PhoneScreenWake />
         </MasterGradedScene>
       </Sequence>
 
@@ -954,15 +947,15 @@ export const Film: React.FC = () => {
       </Sequence>
 
       {/* ===================================================================
-          ACT 3 (cont.): PROACTIVE MORNING FOLLOW-UP / DONE SLOT
+          ACT 3 (cont.): PROACTIVE DEADLINE FOLLOW-UP / DONE SLOT
           00:55–01:00 (frames 1650–1800, 5 seconds)
-          Shows that CEO Me proactively comes back at 8:00 AM.
+          Shows that CEO Me proactively returns after the committed deadline.
           =================================================================== */}
       <Sequence from={1650} durationInFrames={150} name="11-Proactive-Followup">
         <CleanProductProofSlot
           videoSrc={PROOF_FOOTAGE.followupVideo.enabled ? PROOF_FOOTAGE.followupVideo.file : undefined}
           headerBadge="Proactive Accountability"
-          editorialSub="8:00 AM Follow-Up: Status DONE"
+          editorialSub="Deadline Follow-Up: Status DONE"
           caption="IT CAME BACK."
           isFollowUp
         />
