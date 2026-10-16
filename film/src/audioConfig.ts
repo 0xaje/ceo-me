@@ -1,11 +1,11 @@
 /**
- * CEO Me Film V3 — Audio & Narration Architecture
+ * CEO Me Film — Final Audio & Narration Architecture
  *
  * Implements full temporary production audio for review:
  * - Boardroom room tone (continuous presence)
  * - Restrained cinematic score (with ducking during proof)
  * - Pressure overload heartbeat pulse
- * - Subtle phone handling cue
+ * - Tactile phone contact / pickup / interaction cues
  * - CFO pen on paper scratch cue
  * - Mechanical watch tick cue
  * - Controlled rise into full Board
@@ -166,6 +166,6 @@ export const PROOF_FOOTAGE = {
     enabled: false, // Automatically mounts when public/product-proof/iphone-followup.mp4 is supplied
     file: 'product-proof/iphone-followup.mp4',
     volume: 1.0,
-    description: 'Genuine proactive 8:00 AM check-in footage'
+    description: 'Genuine deadline-triggered proactive follow-up footage'
   }
 };
