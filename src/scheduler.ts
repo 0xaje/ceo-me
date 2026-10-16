@@ -12,7 +12,7 @@ export interface TransportSender {
   sendProactiveMessage(userId: string, text: string): Promise<boolean>;
 }
 
-function cleanCommitmentLabel(value: string): string {
+export function cleanCommitmentLabel(value: string): string {
   return value.trim().replace(/[.!?]+$/, "");
 }
 

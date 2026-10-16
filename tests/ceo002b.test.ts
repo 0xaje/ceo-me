@@ -229,4 +229,100 @@ describe("CEO-002B Correctness & Natural Conversational Flow", () => {
     const due = await store.listDueCommitments(new Date(Date.now() + 10000));
     expect(due).toHaveLength(25);
   });
+
+  it("H. Client weekend dilemma end-to-end: reasoning -> 'I accept' -> 'In 5 minutes' -> proactive follow-up -> DONE", async () => {
+    const { service, store } = await makeService();
+    const userId = "user-weekend-demo";
+
+    // 1. User submits dilemma
+    const dilemmaRes = await service.processMessage(
+      userId,
+      "A client wants me available every weekend. The money is good, but I’m already stretched thin. Do I take it?"
+    );
+
+    // Assert board reasoning quality
+    expect(dilemmaRes.reply).not.toContain("The Board focuses on irreversible steps over endless planning.");
+    expect(dilemmaRes.reply).toContain("CFO\nThe money is attractive");
+    expect(dilemmaRes.reply).toContain("OPERATOR\nYou're already stretched");
+    expect(dilemmaRes.reply).toContain("FUTURE YOU\nDon't turn short-term revenue into a permanent claim");
+    expect(dilemmaRes.reply).toContain("BOARD VERDICT\nTake the client only if weekend work is premium-priced and capped.");
+    expect(dilemmaRes.reply).toContain("FIRST MOVE\nSend revised terms with a separate weekend rate and fixed weekend hours.");
+    expect(dilemmaRes.reply).toContain("I can hold you to that if you want.");
+    expect(dilemmaRes.session.conversationState).toBe("AWAITING_COMMITMENT_CONFIRMATION");
+    expect(dilemmaRes.session.pendingCommitmentDraft).toBe(
+      "Send revised terms with a separate weekend rate and fixed weekend hours"
+    );
+
+    // 2. User responds "I accept"
+    const acceptRes = await service.processMessage(userId, "I accept");
+    expect(acceptRes.reply).toBe("Good. When do you want this done?");
+    expect(acceptRes.reaction).toBe("👍");
+    expect(acceptRes.session.conversationState).toBe("AWAITING_DEADLINE");
+    expect(acceptRes.session.pendingCommitmentDraft).toBe(
+      "Send revised terms with a separate weekend rate and fixed weekend hours"
+    );
+
+    // 3. User responds "In 5 minutes"
+    const deadlineRes = await service.processMessage(userId, "In 5 minutes");
+    expect(deadlineRes.reply).toContain("Locked.");
+    expect(deadlineRes.reply).toContain("Send revised terms with a separate weekend rate and fixed weekend hours");
+    expect(deadlineRes.reply).toContain("Due");
+    expect(deadlineRes.reply).toContain("I'll come back then.");
+    expect(deadlineRes.session.conversationState).toBe("COMMITMENT_ACTIVE");
+
+    const commitmentId = deadlineRes.session.activeCommitmentId!;
+    const storedCommitment = await store.getCommitment(commitmentId);
+    expect(storedCommitment?.commitment).toBe(
+      "Send revised terms with a separate weekend rate and fixed weekend hours"
+    );
+    expect(storedCommitment?.commitment).not.toBe("I accept");
+
+    // 4. Proactive follow-up fires when deadline passes
+    const sentMessages: string[] = [];
+    const mockTransport: TransportSender = {
+      async sendProactiveMessage(uId, text) {
+        sentMessages.push(`${uId}:${text}`);
+        return true;
+      }
+    };
+
+    const futureDue = new Date(storedCommitment!.dueAt);
+    const sentCount = await runProactiveFollowUpCheck(
+      store,
+      mockTransport,
+      new Date(futureDue.getTime() + 1000)
+    );
+
+    expect(sentCount).toBe(1);
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]).toContain("BOARD FOLLOW-UP");
+    expect(sentMessages[0]).toContain(
+      "Did you complete: Send revised terms with a separate weekend rate and fixed weekend hours?"
+    );
+    expect(sentMessages[0]).not.toContain("Did you complete: I accept?");
+
+    // 5. User responds DONE
+    const doneRes = await service.processMessage(userId, "DONE");
+    expect(doneRes.reply).toContain("Closed.");
+    expect(doneRes.reply).toContain(
+      "You committed to: Send revised terms with a separate weekend rate and fixed weekend hours."
+    );
+    expect(doneRes.reply).toContain("You completed it.");
+    expect(doneRes.reaction).toBe("👍");
+
+    const completedCommitment = await store.getCommitment(commitmentId);
+    expect(completedCommitment?.status).toBe("completed");
+    expect(doneRes.session.conversationState).toBe("COMPLETED");
+  });
+
+  it("I. Orphan acceptance does not create fake commitment or decision", async () => {
+    const { service } = await makeService();
+    const userId = "user-orphan-accept";
+
+    const res = await service.processMessage(userId, "I accept");
+    expect(res.reply).toContain("I don't have an active decision or proposal to accept.");
+    expect(res.session.activeCommitmentId).toBeUndefined();
+    expect(res.session.activeDecisionId).toBeUndefined();
+  });
 });
+

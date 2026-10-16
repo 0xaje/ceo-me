@@ -228,13 +228,22 @@ export class DeterministicBoardEngine implements BoardReasoningEngine {
       return {
         seats,
         perspectives: [
-          { seat: "cfo", opinion: "Higher revenue is good, but pricing must reflect the surrendered weekend flexibility." },
-          { seat: "operator", opinion: "Weekend client work is an operational debt trap unless scope is strictly capped." },
-          { seat: "future_you", opinion: "Burnout wipes out multiple weeks of productivity. Protect energy unless cash runway requires it." }
+          {
+            seat: "cfo",
+            opinion: "The money is attractive, but recurring weekend access has a real cost. If the client gets weekend availability, it should be premium-priced."
+          },
+          {
+            seat: "operator",
+            opinion: "You're already stretched. Unlimited weekend availability creates an execution and burnout problem. Put a hard boundary around the hours."
+          },
+          {
+            seat: "future_you",
+            opinion: "Don't turn short-term revenue into a permanent claim on your weekends."
+          }
         ],
         verdict: "Take the client only if weekend work is premium-priced and capped.",
-        firstAction: "Send revised terms with fixed weekend hours and a separate weekend rate.",
-        suggestedCommitment: "Send revised terms with capped weekend scope tonight"
+        firstAction: "Send revised terms with a separate weekend rate and fixed weekend hours.",
+        suggestedCommitment: "Send revised terms with a separate weekend rate and fixed weekend hours"
       };
     }
 

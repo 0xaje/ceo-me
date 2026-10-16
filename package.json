@@ -8,7 +8,7 @@
     "dev": "tsx src/cli.ts",
     "test": "OLLAMA_MODEL= OPENAI_API_KEY= vitest run",
     "test:watch": "vitest",
-    "photon": "tsx src/photon.ts"
+    "photon": "NODE_OPTIONS='--dns-result-order=ipv4first' tsx src/photon.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

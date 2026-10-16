@@ -135,12 +135,28 @@ export function parseNaturalDeadline(
     };
   }
 
-  // 2. Relative minute intervals: "in 30 minutes", "give me 3 minutes", "3 mins"
+  // 2. Relative minute intervals: "in 30 minutes", "give me 3 minutes", "3 mins", "in 5 minutes", "in five minutes"
   const relMinutesMatch = input.match(
-    /(?:in|give me|within|another)?\s*(\d+)\s*(?:minutes|minute|mins|min)\b/
+    /(?:in|give me|within|another)?\s*(\d+|one|two|three|four|five|ten|fifteen|twenty|thirty|forty-five|forty five)\s*(?:minutes|minute|mins|min)\b/
   );
   if (relMinutesMatch) {
-    const minutes = parseInt(relMinutesMatch[1], 10);
+    let minutes = parseInt(relMinutesMatch[1], 10);
+    if (isNaN(minutes)) {
+      const words: Record<string, number> = {
+        one: 1,
+        two: 2,
+        three: 3,
+        four: 4,
+        five: 5,
+        ten: 10,
+        fifteen: 15,
+        twenty: 20,
+        thirty: 30,
+        "forty-five": 45,
+        "forty five": 45
+      };
+      minutes = words[relMinutesMatch[1]] || 5;
+    }
     const target = new Date(now.getTime() + minutes * 60 * 1000);
     return { success: true, iso: target.toISOString() };
   }

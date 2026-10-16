@@ -17,6 +17,7 @@ import {
   TwoLayerIntentRouter,
   type IntentClassifier
 } from "./router.js";
+import { cleanCommitmentLabel } from "./scheduler.js";
 import type { CeoStore } from "./store.js";
 
 export interface ProcessMessageResult {
@@ -173,6 +174,40 @@ export class CeoMeService {
 
     // Handle off-script explanation queries
     if (classified.intent === "ASK_EXPLANATION") {
+      if (!activeDecision) {
+        // No active decision to explain -> treat input as new decision / dilemma
+        const { decision, board } = await this.evaluate(userId, text);
+        session.activeDecisionId = decision.id;
+        session.conversationState = "AWAITING_COMMITMENT_CONFIRMATION";
+        session.pendingCommitmentDraft =
+          board.suggestedCommitment || board.firstAction;
+        await this.store.saveUserSession(session);
+
+        let perspectivesText = "";
+        if (board.perspectives && board.perspectives.length > 0) {
+          perspectivesText =
+            board.perspectives
+              .map((p) => `${p.seat.replaceAll("_", " ").toUpperCase()}\n${p.opinion}`)
+              .join("\n\n") + "\n\n";
+        }
+
+        const seatsFormatted = board.seats
+          .map((seat) => seat.replaceAll("_", " ").toUpperCase())
+          .join(" · ");
+
+        const reply =
+          (perspectivesText || `BOARD\n${seatsFormatted}\n\n`) +
+          `BOARD VERDICT\n${board.verdict}\n\n` +
+          `FIRST MOVE\n${board.firstAction}\n\n` +
+          `I can hold you to that if you want.`;
+
+        return {
+          reply,
+          session,
+          decision
+        };
+      }
+
       const lower = text.toLowerCase();
       let answer = "";
 
@@ -272,8 +307,11 @@ export class CeoMeService {
       return { reply: overview, session };
     }
 
-    // STATE: AWAITING_COMMITMENT_CONFIRMATION
-    if (session.conversationState === "AWAITING_COMMITMENT_CONFIRMATION") {
+    // STATE: AWAITING_COMMITMENT_CONFIRMATION or DECISION_DISCUSSION
+    if (
+      session.conversationState === "AWAITING_COMMITMENT_CONFIRMATION" ||
+      session.conversationState === "DECISION_DISCUSSION"
+    ) {
       if (classified.intent === "ACCEPT_COMMITMENT") {
         const draft =
           session.pendingCommitmentDraft ||
@@ -480,8 +518,9 @@ export class CeoMeService {
         session.activeDecisionId = undefined;
         await this.store.saveUserSession(session);
 
+        const clean = cleanCommitmentLabel(activeCommitment.commitment);
         return {
-          reply: `Closed.\n\nYou said you'd ship it.\nYou shipped it.\n\nI'll remember that.`,
+          reply: `Closed.\n\nYou committed to: ${clean}.\nYou completed it.\n\nI'll remember that.`,
           reaction: "👍",
           session,
           commitment: completed
@@ -533,12 +572,19 @@ export class CeoMeService {
       }
     }
 
-    // Guard if user says "DONE" / "BLOCKED" / "ABANDONED" when no commitment exists
+    // Guard if user says "DONE" / "BLOCKED" / "ABANDONED" / "ACCEPT_COMMITMENT" when no active context exists
     if (
       classified.intent === "REPORT_DONE" ||
       classified.intent === "REPORT_BLOCKED" ||
-      classified.intent === "REPORT_ABANDONED"
+      classified.intent === "REPORT_ABANDONED" ||
+      classified.intent === "ACCEPT_COMMITMENT"
     ) {
+      if (classified.intent === "ACCEPT_COMMITMENT") {
+        return {
+          reply: "I don't have an active decision or proposal to accept. Send a dilemma to convene the Board.",
+          session
+        };
+      }
       return {
         reply: "I don't have an active commitment to close.",
         session
@@ -554,14 +600,22 @@ export class CeoMeService {
       board.suggestedCommitment || board.firstAction;
     await this.store.saveUserSession(session);
 
+    let perspectivesText = "";
+    if (board.perspectives && board.perspectives.length > 0) {
+      perspectivesText =
+        board.perspectives
+          .map((p) => `${p.seat.replaceAll("_", " ").toUpperCase()}\n${p.opinion}`)
+          .join("\n\n") + "\n\n";
+    }
+
     const seatsFormatted = board.seats
       .map((seat) => seat.replaceAll("_", " ").toUpperCase())
       .join(" · ");
 
     const reply =
-      `BOARD\n${seatsFormatted}\n\n` +
-      `CEO VERDICT\n${board.verdict}\n\n` +
-      `First move:\n${board.firstAction}\n\n` +
+      (perspectivesText || `BOARD\n${seatsFormatted}\n\n`) +
+      `BOARD VERDICT\n${board.verdict}\n\n` +
+      `FIRST MOVE\n${board.firstAction}\n\n` +
       `I can hold you to that if you want.`;
 
     return {

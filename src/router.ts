@@ -47,12 +47,21 @@ export const ALLOWED_INTENTS: Set<UserIntent> = new Set([
 /**
  * Validate LLM raw output against structured intent schema
  */
-export function validateIntentOutput(val: unknown): ClassifiedIntent | null {
+export function validateIntentOutput(
+  val: unknown,
+  context?: IntentContext
+): ClassifiedIntent | null {
   if (!val || typeof val !== "object") return null;
   const obj = val as Record<string, unknown>;
 
   if (typeof obj.intent !== "string" || !ALLOWED_INTENTS.has(obj.intent as UserIntent)) {
     return null;
+  }
+
+  let intent = obj.intent as UserIntent;
+  // If model predicted explanation but there is no active decision, treat as new decision
+  if (intent === "ASK_EXPLANATION" && context && !context.hasActiveDecision) {
+    intent = "NEW_DECISION";
   }
 
   const confidence =
@@ -69,7 +78,7 @@ export function validateIntentOutput(val: unknown): ClassifiedIntent | null {
   }
 
   return {
-    intent: obj.intent as UserIntent,
+    intent,
     confidence,
     extractedDeadline,
     blocker: typeof obj.blocker === "string" ? obj.blocker.trim() : undefined,
@@ -97,23 +106,25 @@ export function classifyDeterministicIntent(
   const text = userMessage.trim();
   const lower = text.toLowerCase();
 
-  // 1. Explicit explanations / questions:
-  if (
-    /^(why\b|what exactly\b|who voted\b|can you explain\b|tell me more\b)/.test(lower) ||
-    lower.includes("why did the board") ||
-    lower.includes("what am i supposed to") ||
-    lower.includes("what did the board") ||
-    lower.includes("what exactly did i agree to") ||
-    lower.includes("what did i commit to") ||
-    lower.includes("what was my task") ||
-    lower.includes("explain why") ||
-    lower.includes("why future you") ||
-    lower.includes("why is future you") ||
-    lower.includes("why is operator") ||
-    lower.includes("why is cfo") ||
-    lower.includes("why is creative")
-  ) {
-    return { intent: "ASK_EXPLANATION", confidence: 0.95, extractedText: text };
+  // 1. Explicit explanations / questions (requires an active decision to explain):
+  if (context.hasActiveDecision) {
+    if (
+      /^(why\b|what exactly\b|who voted\b|can you explain\b|tell me more\b)/.test(lower) ||
+      lower.includes("why did the board") ||
+      lower.includes("what am i supposed to") ||
+      lower.includes("what did the board") ||
+      lower.includes("what exactly did i agree to") ||
+      lower.includes("what did i commit to") ||
+      lower.includes("what was my task") ||
+      lower.includes("explain why") ||
+      lower.includes("why future you") ||
+      lower.includes("why is future you") ||
+      lower.includes("why is operator") ||
+      lower.includes("why is cfo") ||
+      lower.includes("why is creative")
+    ) {
+      return { intent: "ASK_EXPLANATION", confidence: 0.95, extractedText: text };
+    }
   }
 
   // 2. Status queries:
@@ -212,7 +223,44 @@ export function classifyDeterministicIntent(
     return { intent: "REPORT_BLOCKED", confidence: 0.95, blocker, extractedText: text };
   }
 
-  // 7. AWAITING_COMMITMENT_CONFIRMATION or DECISION_DISCUSSION
+  // 7. Explicit Acceptance triggers (always intent ACCEPT_COMMITMENT)
+  const explicitAcceptTriggers = [
+    "i accept",
+    "accept",
+    "accepted",
+    "i agree",
+    "agree",
+    "agreed",
+    "i'll do it",
+    "ill do it",
+    "i will do it",
+    "hold me to it",
+    "lock it in",
+    "lock it"
+  ];
+
+  const hasExplicitAccept = explicitAcceptTriggers.some(
+    (tr) =>
+      lower === tr ||
+      lower.startsWith(tr + ",") ||
+      lower.startsWith(tr + ".") ||
+      lower.startsWith(tr + "!") ||
+      lower.startsWith(tr + " ")
+  );
+
+  if (hasExplicitAccept) {
+    const parsedDeadline = parseNaturalDeadline(text);
+    if (parsedDeadline.success && parsedDeadline.iso) {
+      return {
+        intent: "ACCEPT_COMMITMENT",
+        confidence: 0.95,
+        extractedDeadline: parsedDeadline.iso
+      };
+    }
+    return { intent: "ACCEPT_COMMITMENT", confidence: 0.95 };
+  }
+
+  // 8. AWAITING_COMMITMENT_CONFIRMATION or DECISION_DISCUSSION conversational responses
   if (
     context.conversationState === "AWAITING_COMMITMENT_CONFIRMATION" ||
     context.conversationState === "DECISION_DISCUSSION"
@@ -227,25 +275,33 @@ export function classifyDeterministicIntent(
       return { intent: "REJECT_COMMITMENT", confidence: 0.95 };
     }
 
-    const acceptTriggers = [
+    const contextAcceptTriggers = [
       "yes",
       "yeah",
-      "hold me to it",
+      "yep",
+      "yup",
       "deal",
       "let's do it",
       "lets do it",
-      "lock it in",
+      "let's do this",
+      "lets do this",
+      "do it",
       "sure",
       "okay",
       "sounds good",
       "let's go"
     ];
 
-    const hasExactAccept = acceptTriggers.some(
-      (tr) => lower === tr || lower.startsWith(tr + ",") || lower.startsWith(tr + ".")
+    const hasContextAccept = contextAcceptTriggers.some(
+      (tr) =>
+        lower === tr ||
+        lower.startsWith(tr + ",") ||
+        lower.startsWith(tr + ".") ||
+        lower.startsWith(tr + "!") ||
+        lower.startsWith(tr + " ")
     );
 
-    if (hasExactAccept) {
+    if (hasContextAccept) {
       const parsedDeadline = parseNaturalDeadline(text);
       if (parsedDeadline.success && parsedDeadline.iso) {
         return {
@@ -327,6 +383,19 @@ export function classifyDeterministicIntent(
     return { intent: "SMALL_TALK", confidence: 0.95 };
   }
 
+  // 11. High-confidence Dilemma / Decision Question Triggers:
+  if (!context.hasActiveCommitment) {
+    const isDecisionQuestion =
+      /^(should i|do i\b|can i\b|could i\b|what should|how should|shall i|would you)\b/i.test(text) ||
+      /\b(do i take it|should i take it|what should i do|what do i do|do we take it)\b/i.test(text) ||
+      (/\b(client|freelance|offer|opportunity|project|partnership|job|deal)\b/i.test(text) &&
+       /\b(weekend|weekends|money|rate|terms|price|runway|equity|hours|time|commit|commitment)\b/i.test(text));
+
+    if (isDecisionQuestion) {
+      return { intent: "NEW_DECISION", confidence: 0.95, extractedText: text };
+    }
+  }
+
   // Ambiguous input candidate
   return { intent: "NEW_DECISION", confidence: 0.5, extractedText: text };
 }
@@ -375,7 +444,7 @@ export class TwoLayerIntentRouter implements IntentClassifier {
       const structured = await this.provider.generateStructured<ClassifiedIntent>(
         systemPrompt,
         modelInput,
-        validateIntentOutput
+        (val) => validateIntentOutput(val, context)
       );
 
       if (structured) {

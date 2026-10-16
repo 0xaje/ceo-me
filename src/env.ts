@@ -1,5 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { setDefaultResultOrder } from "node:dns";
+
+try {
+  setDefaultResultOrder("ipv4first");
+} catch {
+  // Best-effort for environments where setDefaultResultOrder is unavailable
+}
 
 /**
  * Lightweight .env loader that parses key=value pairs into process.env
