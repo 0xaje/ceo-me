@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   AbsoluteFill,
-  Img,
   Sequence,
   staticFile,
   useCurrentFrame,
@@ -9,15 +8,16 @@ import {
   Audio
 } from 'remotion';
 import {Video} from '@remotion/media';
-import {AUDIO_LAYERS, PROOF_FOOTAGE, VO_CUES} from './audioConfig';
+import {AUDIO_LAYERS, PROOF_FOOTAGE} from './audioConfig';
 
 const FPS = 30;
 
 /* =========================================================================
-   CINEMATIC EASING & MOTION HELPERS
+   CINEMATIC EASING & MASTER COLOR FINISHING
+   Restrained common print finishing: warm amber practicals, deep neutral blacks,
+   restrained cool-blue city highlights, consistent contrast & saturation.
    ========================================================================= */
 
-// Smooth fade in / hold / fade out
 const easeFade = (frame: number, inStart: number, inEnd: number, outStart: number, outEnd: number) => {
   return interpolate(
     frame,
@@ -27,41 +27,54 @@ const easeFade = (frame: number, inStart: number, inEnd: number, outStart: numbe
   );
 };
 
-// Subtle drift/ken burns for stills
-const DriftStill: React.FC<{
-  src: string;
-  startScale?: number;
-  endScale?: number;
-  origin?: string;
-  opacity?: number;
-}> = ({src, startScale = 1.0, endScale = 1.03, origin = 'center center', opacity = 1}) => {
-  const frame = useCurrentFrame();
-  const scale = interpolate(frame, [0, 150], [startScale, endScale], {
-    extrapolateRight: 'clamp'
-  });
+// Master Color Emulation Wrapper for cinematic footage
+// Provides unified film tone curve, deep neutral blacks, and balanced lighting
+const MasterGradedScene: React.FC<{children: React.ReactNode}> = ({children}) => {
   return (
-    <AbsoluteFill style={{overflow: 'hidden', backgroundColor: '#000', opacity}}>
-      <Img
-        src={staticFile(src)}
+    <AbsoluteFill style={{backgroundColor: '#000', overflow: 'hidden'}}>
+      {/* Underlying motion footage */}
+      <div
         style={{
           width: '100%',
           height: '100%',
-          objectFit: 'cover',
-          transform: `scale(${scale})`,
-          transformOrigin: origin
+          filter: 'contrast(1.05) brightness(0.99) saturate(1.0)'
+        }}
+      >
+        {children}
+      </div>
+
+      {/* Balanced unified boardroom light balance:
+          Restrained warm practical highlight center (subtle, non-orange)
+          and crisp cool-blue night skyline fill */}
+      <AbsoluteFill
+        style={{
+          pointerEvents: 'none',
+          mixBlendMode: 'soft-light',
+          background:
+            'radial-gradient(ellipse at 50% 25%, rgba(220,165,95,0.06) 0%, transparent 60%), radial-gradient(ellipse at 88% 28%, rgba(56,120,210,0.10) 0%, transparent 55%)'
+        }}
+      />
+
+      {/* Deep neutral/slightly cool black floor & edge vignette */}
+      <AbsoluteFill
+        style={{
+          pointerEvents: 'none',
+          background:
+            'radial-gradient(circle at 50% 50%, transparent 62%, rgba(4,7,12,0.56) 100%)'
         }}
       />
     </AbsoluteFill>
   );
 };
 
-// Trimmed Video clip helper
-const TrimmedClip: React.FC<{
+// Video clip helper with direct objectFit prop and per-shot normalization filter
+const MotionClip: React.FC<{
   src: string;
   startSec: number;
   endSec: number;
   volume?: number;
-}> = ({src, startSec, endSec, volume = 0}) => {
+  filter?: string;
+}> = ({src, startSec, endSec, volume = 0, filter}) => {
   return (
     <AbsoluteFill style={{backgroundColor: '#000', overflow: 'hidden'}}>
       <Video
@@ -70,282 +83,303 @@ const TrimmedClip: React.FC<{
         endAt={Math.round(endSec * FPS)}
         volume={volume}
         objectFit="cover"
-        style={{width: '100%', height: '100%'}}
+        style={{
+          width: '100%',
+          height: '100%',
+          filter: filter || undefined
+        }}
       />
     </AbsoluteFill>
   );
 };
 
-/* =========================================================================
-   EDITORIAL MOTION TYPOGRAPHY
-   ========================================================================= */
-
-// Restrained, premium editorial caption
-const EditorialCaption: React.FC<{
-  text: string;
-  subtext?: string;
-  position?: 'bottom-center' | 'top-left' | 'bottom-left';
-  delay?: number;
-  duration?: number;
-}> = ({text, subtext, position = 'bottom-center', delay = 0, duration = 120}) => {
+// Organic Phone Screen Wake Compositing (Physical device realism without fake UI)
+const PhoneScreenWake: React.FC = () => {
   const frame = useCurrentFrame();
-  const activeFrame = frame - delay;
-  if (activeFrame < 0 || activeFrame > duration) return null;
+  // Frame 38 is when CEO's finger contacts the phone on the dark marble table
+  const touchFrame = 38;
+  const active = frame - touchFrame;
+  if (active < 0) return null;
 
-  const opacity = easeFade(activeFrame, 0, 12, duration - 15, duration);
-  const translateY = interpolate(activeFrame, [0, 15], [10, 0], {extrapolateRight: 'clamp'});
-  const blur = interpolate(activeFrame, [0, 12], [6, 0], {extrapolateRight: 'clamp'});
-  const tracking = interpolate(activeFrame, [0, 30], [2, 4], {extrapolateRight: 'clamp'});
+  // Screen wake illumination ramps in over 8 frames
+  const wakeOpacity = interpolate(active, [0, 8, 95, 125], [0, 1, 1, 0], {
+    extrapolateRight: 'clamp'
+  });
 
-  const positionStyles: Record<string, React.CSSProperties> = {
-    'bottom-center': {
-      bottom: 80,
-      left: '50%',
-      transform: `translateX(-50%) translateY(${translateY}px)`,
-      textAlign: 'center',
-      maxWidth: 1200
-    },
-    'bottom-left': {
-      bottom: 80,
-      left: 100,
-      transform: `translateY(${translateY}px)`,
-      textAlign: 'left',
-      maxWidth: 900
-    },
-    'top-left': {
-      top: 80,
-      left: 100,
-      transform: `translateY(${translateY}px)`,
-      textAlign: 'left',
-      maxWidth: 900
-    }
-  };
+  // Tracking offset as hand lifts phone toward CEO
+  const liftY = interpolate(active, [0, 32, 70], [0, 0, -22], {
+    extrapolateRight: 'clamp'
+  });
+  const liftX = interpolate(active, [0, 32, 70], [0, 0, -14], {
+    extrapolateRight: 'clamp'
+  });
+  const touchPulse = interpolate(active, [0, 6, 14], [1, 1.08, 1], {
+    extrapolateRight: 'clamp'
+  });
 
   return (
     <div
       style={{
         position: 'absolute',
-        zIndex: 50,
+        left: '54.2%',
+        top: '74.5%',
+        width: '10.8%',
+        height: '7.4%',
+        transform: `translate(${liftX}px, ${liftY}px) rotate(-16deg) scale(${touchPulse})`,
         pointerEvents: 'none',
-        opacity,
-        filter: `blur(${blur}px)`,
-        ...positionStyles[position]
+        zIndex: 25,
+        opacity: wakeOpacity
       }}
     >
+      {/* Soft OLED tabletop screen wake - neutral/cool white display glow */}
       <div
         style={{
-          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-          fontSize: 40,
-          fontWeight: 700,
-          color: '#FFFFFF',
-          letterSpacing: `${tracking}px`,
-          lineHeight: 1.25,
-          textShadow: '0 4px 24px rgba(0,0,0,0.92)'
+          width: '100%',
+          height: '100%',
+          borderRadius: 8,
+          background:
+            'linear-gradient(135deg, rgba(235, 245, 255, 0.45) 0%, rgba(180, 210, 245, 0.3) 100%)',
+          boxShadow:
+            '0 0 24px rgba(190, 220, 255, 0.65), 0 0 45px rgba(160, 200, 255, 0.35)',
+          mixBlendMode: 'screen',
+          filter: 'blur(2px)'
         }}
-      >
-        {text}
-      </div>
-      {subtext && (
-        <div
-          style={{
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-            fontSize: 22,
-            fontWeight: 400,
-            color: 'rgba(255,255,255,0.7)',
-            letterSpacing: '2px',
-            marginTop: 8,
-            textShadow: '0 2px 14px rgba(0,0,0,0.85)'
-          }}
-        >
-          {subtext}
-        </div>
-      )}
+      />
+      {/* Soft marble reflection & fingertip illumination */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '-15%',
+          left: '-20%',
+          width: '140%',
+          height: '130%',
+          borderRadius: '50%',
+          background:
+            'radial-gradient(circle, rgba(210, 230, 255, 0.25) 0%, transparent 70%)',
+          mixBlendMode: 'screen',
+          filter: 'blur(6px)'
+        }}
+      />
     </div>
   );
 };
 
-// Subtle character designation lower-third
-const CharacterTag: React.FC<{
+/* =========================================================================
+   RESTRAINED SPATIAL TYPOGRAPHY
+   Animates from the character's physical location in the room,
+   avoiding generic documentary lower-thirds.
+   ========================================================================= */
+
+const SpatialCharacterTag: React.FC<{
   role: string;
-  focus: string;
+  lineage: string;
+  position: {left?: number; right?: number; top: number};
   delay?: number;
   duration?: number;
-}> = ({role, focus, delay = 10, duration = 120}) => {
+}> = ({role, lineage, position, delay = 25, duration = 120}) => {
   const frame = useCurrentFrame();
-  const activeFrame = frame - delay;
-  if (activeFrame < 0 || activeFrame > duration) return null;
+  const active = frame - delay;
+  if (active < 0 || active > duration) return null;
 
-  const opacity = easeFade(activeFrame, 0, 15, duration - 15, duration);
-  const translateY = interpolate(activeFrame, [0, 15], [12, 0], {extrapolateRight: 'clamp'});
+  const opacity = easeFade(active, 0, 15, duration - 15, duration);
+  const translateY = interpolate(active, [0, 15], [10, 0], {extrapolateRight: 'clamp'});
+  const blur = interpolate(active, [0, 12], [6, 0], {extrapolateRight: 'clamp'});
+  const tracking = interpolate(active, [0, 45], [4, 7], {extrapolateRight: 'clamp'});
 
   return (
     <div
       style={{
         position: 'absolute',
-        top: 75,
-        left: 90,
-        zIndex: 40,
+        ...position,
+        zIndex: 50,
         opacity,
+        filter: `blur(${blur}px)`,
         transform: `translateY(${translateY}px)`,
-        pointerEvents: 'none',
-        borderLeft: '2px solid rgba(226,160,82,0.85)',
-        paddingLeft: 18
+        pointerEvents: 'none'
       }}
     >
       <div
         style={{
-          fontFamily: "'Inter', sans-serif",
-          fontSize: 16,
-          fontWeight: 800,
+          fontFamily: "'Inter', -apple-system, sans-serif",
+          fontSize: 24,
+          fontWeight: 850,
           color: '#E2A052',
-          letterSpacing: '5px',
-          textTransform: 'uppercase'
+          letterSpacing: `${tracking}px`,
+          textTransform: 'uppercase',
+          textShadow: '0 2px 20px rgba(0,0,0,0.95), 0 0 30px rgba(226,160,82,0.3)'
         }}
       >
         {role}
       </div>
       <div
         style={{
-          fontFamily: "'Inter', sans-serif",
+          fontFamily: "'Inter', -apple-system, sans-serif",
           fontSize: 13,
-          fontWeight: 500,
-          color: 'rgba(255,255,255,0.75)',
-          letterSpacing: '2px',
-          marginTop: 4,
-          textTransform: 'uppercase'
+          fontWeight: 600,
+          color: 'rgba(255,255,255,0.72)',
+          letterSpacing: '3px',
+          marginTop: 6,
+          textTransform: 'uppercase',
+          textShadow: '0 2px 14px rgba(0,0,0,0.9)'
         }}
       >
-        {focus}
+        {lineage}
       </div>
     </div>
   );
 };
 
 /* =========================================================================
-   SPATIAL PRESSURE ACCUMULATION
-   Words accumulate spatially around the solitary CEO rather than label cards
+   INTEGRATED PRESSURE EMPHASIS
    ========================================================================= */
 
-const SpatialPressureLayer: React.FC = () => {
+const PressureQuestionEmphasis: React.FC = () => {
   const frame = useCurrentFrame();
+  // Appears on the final beat of Act 1 (frames 120–180 of pressure sequence)
+  const active = frame - 120;
+  if (active < 0) return null;
 
-  const words = [
-    {word: 'CLIENT', start: 10, x: 23, y: 26, size: 36},
-    {word: 'DEADLINE', start: 35, x: 75, y: 24, size: 38},
-    {word: 'TEAM', start: 65, x: 20, y: 52, size: 34},
-    {word: 'MONEY', start: 95, x: 77, y: 52, size: 36},
-    {word: 'FAMILY', start: 120, x: 29, y: 74, size: 32}
-  ];
+  const opacity = easeFade(active, 0, 16, 50, 60);
+  const blur = interpolate(active, [0, 15], [8, 0], {extrapolateRight: 'clamp'});
+  const scale = interpolate(active, [0, 60], [0.97, 1.0], {extrapolateRight: 'clamp'});
 
   return (
     <AbsoluteFill
       style={{
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        paddingBottom: 90,
         pointerEvents: 'none',
-        background: 'radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0.1) 20%, rgba(0,0,0,0.55) 100%)'
+        zIndex: 50
       }}
     >
-      {words.map(({word, start, x, y, size}) => {
-        if (frame < start) return null;
-        const active = frame - start;
-        const opacity = interpolate(active, [0, 15], [0, 0.88], {extrapolateRight: 'clamp'});
-        const blur = interpolate(active, [0, 15], [8, 0], {extrapolateRight: 'clamp'});
-        const tracking = interpolate(active, [0, 60], [4, 7], {extrapolateRight: 'clamp'});
-
-        return (
-          <div
-            key={word}
-            style={{
-              position: 'absolute',
-              left: `${x}%`,
-              top: `${y}%`,
-              transform: 'translate(-50%, -50%)',
-              opacity,
-              filter: `blur(${blur}px)`,
-              fontFamily: "'Inter', sans-serif",
-              fontSize: size,
-              fontWeight: 800,
-              letterSpacing: `${tracking}px`,
-              color: '#FFFFFF',
-              textShadow: '0 3px 20px rgba(0,0,0,0.95), 0 0 30px rgba(226,160,82,0.18)'
-            }}
-          >
-            {word}
-          </div>
-        );
-      })}
+      <div
+        style={{
+          opacity,
+          filter: `blur(${blur}px)`,
+          transform: `scale(${scale})`,
+          textAlign: 'center'
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 32,
+            fontWeight: 800,
+            color: '#FFFFFF',
+            letterSpacing: '6px',
+            textTransform: 'uppercase',
+            textShadow: '0 4px 30px rgba(0,0,0,0.95)'
+          }}
+        >
+          WHO DOES THE CEO ASK?
+        </div>
+      </div>
     </AbsoluteFill>
   );
 };
 
 /* =========================================================================
-   GENUINE WATCH MATCH-CUT
-   Crops into legitimate final imagery to establish the timepiece connection
-   without using storyboard collages
+   BOARD LOCK-IN EDITORIAL TITLE
    ========================================================================= */
 
-const WatchMatchCut: React.FC = () => {
+const LivingBoardTitle: React.FC = () => {
   const frame = useCurrentFrame();
-  // Push in on the CEO's watch dial in type-phone.png
-  const zoom = interpolate(frame, [0, 45], [2.4, 2.7], {extrapolateRight: 'clamp'});
+  // Appears only at the "Your Board" beat (f: 70 of living board scene)
+  const active = frame - 70;
+  if (active < 0) return null;
 
-  return (
-    <AbsoluteFill style={{overflow: 'hidden', backgroundColor: '#000'}}>
-      <Img
-        src={staticFile('images/type-phone.png')}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          transform: `scale(${zoom})`,
-          transformOrigin: '53% 82%'
-        }}
-      />
-      {/* Editorial subtle vignette focus */}
-      <AbsoluteFill
-        style={{
-          background: 'radial-gradient(circle at 50% 50%, transparent 35%, rgba(0,0,0,0.65) 100%)'
-        }}
-      />
-    </AbsoluteFill>
-  );
-};
-
-/* =========================================================================
-   VERTICAL iPHONE PRESENTATION (PROOF SLOTS)
-   16:9 cinematic canvas housing uncropped 9:16 vertical iPhone footage
-   ========================================================================= */
-
-const VerticalPhoneSlot: React.FC<{
-  videoSrc?: string;
-  headerTitle: string;
-  headerSub: string;
-  isFollowUp?: boolean;
-}> = ({videoSrc, headerTitle, headerSub, isFollowUp = false}) => {
-  const frame = useCurrentFrame();
-  const fadeIn = interpolate(frame, [0, 15], [0, 1], {extrapolateRight: 'clamp'});
+  const opacity = easeFade(active, 0, 14, 70, 80);
+  const blur = interpolate(active, [0, 14], [6, 0], {extrapolateRight: 'clamp'});
+  const translateY = interpolate(active, [0, 16], [12, 0], {extrapolateRight: 'clamp'});
 
   return (
     <AbsoluteFill
       style={{
-        backgroundColor: '#07080A',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        paddingBottom: 85,
+        pointerEvents: 'none',
+        zIndex: 50
+      }}
+    >
+      <div
+        style={{
+          opacity,
+          filter: `blur(${blur}px)`,
+          transform: `translateY(${translateY}px)`,
+          textAlign: 'center'
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 44,
+            fontWeight: 900,
+            letterSpacing: '8px',
+            color: '#FFFFFF',
+            textTransform: 'uppercase',
+            textShadow: '0 4px 30px rgba(0,0,0,0.95), 0 0 40px rgba(226,160,82,0.35)'
+          }}
+        >
+          YOUR BOARD.
+        </div>
+        <div
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 16,
+            fontWeight: 700,
+            letterSpacing: '5px',
+            color: '#E2A052',
+            marginTop: 8,
+            textTransform: 'uppercase',
+            textShadow: '0 2px 16px rgba(0,0,0,0.9)'
+          }}
+        >
+          CFO &nbsp;·&nbsp; OPERATOR &nbsp;·&nbsp; FUTURE YOU
+        </div>
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+/* =========================================================================
+   CLEAN VERTICAL PRODUCT PROOF PRESENTATION
+   Integrated with dark boardroom language, uncropped 9:16, no fake device mockup
+   ========================================================================= */
+
+const CleanProductProofSlot: React.FC<{
+  videoSrc?: string;
+  headerBadge: string;
+  editorialSub: string;
+  caption?: string;
+  isFollowUp?: boolean;
+}> = ({videoSrc, headerBadge, editorialSub, caption, isFollowUp = false}) => {
+  const frame = useCurrentFrame();
+  const fadeIn = interpolate(frame, [0, 12], [0, 1], {extrapolateRight: 'clamp'});
+
+  return (
+    <AbsoluteFill
+      style={{
+        backgroundColor: '#050507',
         justifyContent: 'center',
         alignItems: 'center',
         opacity: fadeIn
       }}
     >
-      {/* Ambient background glow & subtle grid */}
+      {/* Deep neutral boardroom ambience */}
       <AbsoluteFill
         style={{
           background:
-            'radial-gradient(circle at 50% 50%, rgba(20,24,33,0.85) 0%, rgba(5,6,8,1) 85%)'
+            'radial-gradient(ellipse at 50% 50%, rgba(18,16,22,0.85) 0%, rgba(4,4,6,1) 85%)'
         }}
       />
 
-      {/* Editorial Header */}
+      {/* Top Editorial Label */}
       <div
         style={{
           position: 'absolute',
-          top: 40,
+          top: 36,
           textAlign: 'center',
           zIndex: 30
         }}
@@ -353,60 +387,43 @@ const VerticalPhoneSlot: React.FC<{
         <div
           style={{
             fontFamily: "'Inter', sans-serif",
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: 800,
             color: '#E2A052',
             letterSpacing: '4px',
             textTransform: 'uppercase'
           }}
         >
-          {headerTitle}
+          {headerBadge}
         </div>
         <div
           style={{
             fontFamily: "'Inter', sans-serif",
-            fontSize: 18,
+            fontSize: 17,
             fontWeight: 500,
             color: 'rgba(255,255,255,0.7)',
             letterSpacing: '1px',
             marginTop: 4
           }}
         >
-          {headerSub}
+          {editorialSub}
         </div>
       </div>
 
-      {/* Titanium Phone Enclosure — 9:16 authentic frame */}
+      {/* Vertical 9:16 Presentation — clean obsidian matte frame */}
       <div
         style={{
           width: 506,
           height: 900,
-          borderRadius: 48,
+          borderRadius: 36,
           position: 'relative',
           overflow: 'hidden',
-          backgroundColor: '#000',
-          border: '1.5px solid rgba(255,255,255,0.18)',
-          boxShadow: '0 30px 90px rgba(0,0,0,0.95), 0 0 35px rgba(226,160,82,0.12)',
+          backgroundColor: '#000000',
+          border: '1px solid rgba(226,160,82,0.25)',
+          boxShadow: '0 25px 80px rgba(0,0,0,0.95), 0 0 30px rgba(0,0,0,0.8)',
           zIndex: 20
         }}
       >
-        {/* Dynamic Island Notch Cutout */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 14,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: 120,
-            height: 32,
-            backgroundColor: '#000',
-            borderRadius: 20,
-            zIndex: 40,
-            border: '1px solid rgba(255,255,255,0.08)'
-          }}
-        />
-
-        {/* Live footage slot or neutral technical placeholder */}
         {videoSrc ? (
           <Video
             src={staticFile(videoSrc)}
@@ -421,10 +438,10 @@ const VerticalPhoneSlot: React.FC<{
         ) : (
           <AbsoluteFill
             style={{
-              backgroundColor: '#050608',
+              backgroundColor: '#040406',
               justifyContent: 'center',
               alignItems: 'center',
-              padding: 40,
+              padding: 36,
               textAlign: 'center'
             }}
           >
@@ -436,18 +453,18 @@ const VerticalPhoneSlot: React.FC<{
                 color: '#E2A052',
                 letterSpacing: '3px',
                 textTransform: 'uppercase',
-                border: '1px solid rgba(226,160,82,0.35)',
+                border: '1px solid rgba(226,160,82,0.4)',
                 padding: '6px 14px',
-                borderRadius: 20,
-                marginBottom: 20
+                borderRadius: 16,
+                marginBottom: 18
               }}
             >
-              {isFollowUp ? 'MORNING ACCOUNTABILITY SLOT' : 'GENUINE PRODUCT PROOF SLOT'}
+              {isFollowUp ? 'PROACTIVE FOLLOW-UP' : 'GENUINE CONSULTATION'}
             </div>
             <div
               style={{
                 fontFamily: "'Inter', sans-serif",
-                fontSize: 22,
+                fontSize: 20,
                 fontWeight: 700,
                 color: '#FFFFFF',
                 letterSpacing: '1px',
@@ -455,15 +472,15 @@ const VerticalPhoneSlot: React.FC<{
               }}
             >
               {isFollowUp
-                ? '8:00 AM Proactive Follow-Up'
-                : 'Live Multi-Agent Deliberation'}
+                ? '8:00 AM Morning Accountability'
+                : 'Multi-Agent Board Deliberation'}
             </div>
             <div
               style={{
                 fontFamily: "'Inter', sans-serif",
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: 400,
-                color: 'rgba(255,255,255,0.45)',
+                color: 'rgba(255,255,255,0.4)',
                 marginTop: 14,
                 lineHeight: 1.5
               }}
@@ -480,49 +497,51 @@ const VerticalPhoneSlot: React.FC<{
         )}
       </div>
 
-      {/* Subtext under phone */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 30,
-          fontFamily: "'Inter', sans-serif",
-          fontSize: 12,
-          fontWeight: 600,
-          color: 'rgba(255,255,255,0.4)',
-          letterSpacing: '2px',
-          textTransform: 'uppercase'
-        }}
-      >
-        {isFollowUp ? 'PHOTON PROACTIVE CRON · STATUS: DONE' : 'BUILT WITH PHOTON · iMESSAGE NATIVE'}
-      </div>
+      {/* External editorial caption (e.g. IT CAME BACK.) */}
+      {caption && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 30,
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 15,
+            fontWeight: 800,
+            color: '#E2A052',
+            letterSpacing: '4px',
+            textTransform: 'uppercase',
+            textShadow: '0 2px 14px rgba(0,0,0,0.9)'
+          }}
+        >
+          {caption}
+        </div>
+      )}
     </AbsoluteFill>
   );
 };
 
 /* =========================================================================
-   CINEMATIC PAYOFF & BRAND ENDING
-   CEO ME → YOUR PERSONAL BOARD OF DIRECTORS → IN iMESSAGE. → Photon → Triad
+   BRAND ENDING — WARM AMBER + PERSPECTIVE BOARDROOM TABLE MOTIF
+   CEO ME → YOUR PERSONAL BOARD OF DIRECTORS IN iMESSAGE. →
+   Built with Photon → DECIDE · COMMIT · BECOME
    ========================================================================= */
 
-const BrandEnding: React.FC = () => {
+const RefinedBrandEnding: React.FC = () => {
   const frame = useCurrentFrame();
 
-  // Phase 1: CEO ME (f: 0–40)
   const logoOpacity = interpolate(frame, [0, 20], [0, 1], {extrapolateRight: 'clamp'});
   const logoTracking = interpolate(frame, [0, 50], [6, 14], {extrapolateRight: 'clamp'});
-  const logoScale = interpolate(frame, [0, 60], [1.06, 1.0], {extrapolateRight: 'clamp'});
+  const logoScale = interpolate(frame, [0, 60], [1.05, 1.0], {extrapolateRight: 'clamp'});
 
-  // Phase 2: Tagline (f: 25–65)
   const tagOpacity = interpolate(frame, [25, 42], [0, 1], {extrapolateRight: 'clamp'});
-  const tagY = interpolate(frame, [25, 42], [14, 0], {extrapolateRight: 'clamp'});
+  const tagY = interpolate(frame, [25, 42], [12, 0], {extrapolateRight: 'clamp'});
 
-  // Phase 3: Built with Photon (f: 50–80)
   const photonOpacity = interpolate(frame, [50, 65], [0, 1], {extrapolateRight: 'clamp'});
 
-  // Phase 4: Triad (f: 75–120)
   const triadOpacity = interpolate(frame, [72, 88], [0, 1], {extrapolateRight: 'clamp'});
   const triadTracking = interpolate(frame, [72, 110], [5, 9], {extrapolateRight: 'clamp'});
-  const lineWidth = interpolate(frame, [70, 95], [0, 280], {extrapolateRight: 'clamp'});
+
+  // Perspective table line motif
+  const lineWidth = interpolate(frame, [65, 95], [0, 360], {extrapolateRight: 'clamp'});
 
   return (
     <AbsoluteFill
@@ -533,15 +552,14 @@ const BrandEnding: React.FC = () => {
         overflow: 'hidden'
       }}
     >
-      {/* Faint luxury radial illumination */}
+      {/* Warm amber executive radial glow */}
       <AbsoluteFill
         style={{
           background:
-            'radial-gradient(circle at 50% 48%, rgba(35,25,18,0.45) 0%, rgba(4,4,5,1) 75%)'
+            'radial-gradient(circle at 50% 50%, rgba(42,28,18,0.5) 0%, rgba(4,4,5,1) 80%)'
         }}
       />
 
-      {/* Main Brand Assembly */}
       <div
         style={{
           textAlign: 'center',
@@ -554,12 +572,12 @@ const BrandEnding: React.FC = () => {
           style={{
             opacity: logoOpacity,
             fontFamily: "'Inter', -apple-system, sans-serif",
-            fontSize: 108,
+            fontSize: 104,
             fontWeight: 900,
             letterSpacing: `${logoTracking}px`,
             color: '#FFFFFF',
             lineHeight: 1.0,
-            textShadow: '0 0 60px rgba(226,160,82,0.35)'
+            textShadow: '0 0 60px rgba(226,160,82,0.45)'
           }}
         >
           CEO ME
@@ -570,14 +588,14 @@ const BrandEnding: React.FC = () => {
           style={{
             opacity: tagOpacity,
             transform: `translateY(${tagY}px)`,
-            marginTop: 24
+            marginTop: 22
           }}
         >
           <div
             style={{
               fontFamily: "'Inter', sans-serif",
-              fontSize: 26,
-              fontWeight: 700,
+              fontSize: 24,
+              fontWeight: 750,
               letterSpacing: '5px',
               color: 'rgba(255,255,255,0.92)',
               textTransform: 'uppercase'
@@ -588,13 +606,13 @@ const BrandEnding: React.FC = () => {
           <div
             style={{
               fontFamily: "'Inter', sans-serif",
-              fontSize: 22,
-              fontWeight: 600,
+              fontSize: 21,
+              fontWeight: 700,
               letterSpacing: '4px',
-              color: '#38bdf8',
-              marginTop: 8,
+              color: '#E2A052',
+              marginTop: 6,
               textTransform: 'uppercase',
-              textShadow: '0 0 24px rgba(56,189,248,0.4)'
+              textShadow: '0 0 24px rgba(226,160,82,0.4)'
             }}
           >
             IN iMESSAGE.
@@ -606,43 +624,44 @@ const BrandEnding: React.FC = () => {
           style={{
             opacity: photonOpacity,
             fontFamily: "'Inter', sans-serif",
-            fontSize: 16,
+            fontSize: 15,
             fontWeight: 500,
             letterSpacing: '3px',
             color: 'rgba(255,255,255,0.45)',
-            marginTop: 22,
+            marginTop: 20,
             textTransform: 'uppercase'
           }}
         >
           Built with Photon
         </div>
 
-        {/* Separator Accent */}
+        {/* Perspective Boardroom Table Line Motif */}
         <div
           style={{
             width: lineWidth,
-            height: 1,
-            backgroundColor: 'rgba(226,160,82,0.6)',
-            margin: '28px auto 0 auto',
-            boxShadow: '0 0 12px rgba(226,160,82,0.5)'
+            height: 1.5,
+            background:
+              'linear-gradient(90deg, transparent, rgba(226,160,82,0.85) 50%, transparent)',
+            margin: '26px auto 0 auto',
+            boxShadow: '0 0 16px rgba(226,160,82,0.6)'
           }}
         />
 
-        {/* Triad Mantra: DECIDE. COMMIT. BECOME. */}
+        {/* Triad Mantra */}
         <div
           style={{
             opacity: triadOpacity,
             fontFamily: "'Inter', sans-serif",
-            fontSize: 20,
+            fontSize: 19,
             fontWeight: 800,
             letterSpacing: `${triadTracking}px`,
             color: '#E2A052',
-            marginTop: 24,
+            marginTop: 22,
             textTransform: 'uppercase',
-            textShadow: '0 2px 20px rgba(0,0,0,0.9)'
+            textShadow: '0 2px 20px rgba(0,0,0,0.95)'
           }}
         >
-          DECIDE. &nbsp;COMMIT. &nbsp;BECOME.
+          DECIDE &nbsp;·&nbsp; COMMIT &nbsp;·&nbsp; BECOME
         </div>
       </div>
     </AbsoluteFill>
@@ -650,228 +669,354 @@ const BrandEnding: React.FC = () => {
 };
 
 /* =========================================================================
-   SAFE AUDIO ARCHITECTURE WRAPPER
-   Only mounts Audio elements if enabled to guarantee zero 404 render failures
-   ========================================================================= */
-
-const SafeAudioTrack: React.FC<{
-  trackKey: keyof typeof AUDIO_LAYERS;
-  volumeOverride?: number;
-}> = ({trackKey, volumeOverride}) => {
-  const layer = AUDIO_LAYERS[trackKey];
-  if (!layer || !layer.enabled) return null;
-
-  return (
-    <Audio
-      src={staticFile(layer.file)}
-      volume={volumeOverride !== undefined ? volumeOverride : layer.baseVolume}
-    />
-  );
-};
-
-/* =========================================================================
-   DIRECTOR'S CUT COMPOSITION
-   Runtime: 2040 frames (68.00 seconds @ 30 FPS)
+   V3 ASSEMBLY COMPOSITION
+   Total Runtime: 2,040 frames (68.00 seconds @ 30 FPS)
+   Continuous motion life throughout Acts 1 & 2. Zero static PNG sequences.
    ========================================================================= */
 
 export const Film: React.FC = () => {
+  const currentFrame = useCurrentFrame();
+
+  // Dynamic Score Ducking Curve:
+  // Ducks to 0.06 during 00:41–01:00 (frames 1230–1800) for genuine iPhone audio
+  const scoreVolume = interpolate(
+    currentFrame,
+    [0, 1170, 1230, 1780, 1820, 2040],
+    [0.68, 0.68, 0.06, 0.06, 0.72, 0.72],
+    {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}
+  );
+
+  const roomToneVolume = interpolate(
+    currentFrame,
+    [0, 1170, 1230, 1780, 1820, 2040],
+    [0.35, 0.35, 0.04, 0.04, 0.38, 0.38],
+    {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}
+  );
+
   return (
     <AbsoluteFill style={{backgroundColor: '#000000'}}>
-      {/* -------------------------------------------------------------------
-          AUDIO ARCHITECTURE & VO CUES
-          Ducking curve: Room tone & score duck during 00:40–01:00 (proof slot)
-          so genuine iPhone audio takes full priority
-          ------------------------------------------------------------------- */}
-      <SafeAudioTrack trackKey="roomTone" />
-      <SafeAudioTrack trackKey="score" />
-      <SafeAudioTrack trackKey="voiceover" />
+      {/* ===================================================================
+          MASTER AUDIO GRAPH — FULL SOUNDSCAPE EMBEDDED IN RENDER
+          =================================================================== */}
+      {AUDIO_LAYERS.roomTone.enabled && (
+        <Audio src={staticFile(AUDIO_LAYERS.roomTone.file)} volume={roomToneVolume} />
+      )}
+      {AUDIO_LAYERS.score.enabled && (
+        <Audio src={staticFile(AUDIO_LAYERS.score.file)} volume={scoreVolume} />
+      )}
 
-      {/* -------------------------------------------------------------------
-          ACT 1: THE WEIGHT & PRESSURE
-          00:00–00:07 (frames 0–210) — Boardroom pullback / pressure begins
-          Trim: 01-boardroom-pullback.mp4 (0.0s – 7.0s)
-          VO Cue 1: "Everyone comes to you for answers."
-          ------------------------------------------------------------------- */}
-      <Sequence from={0} durationInFrames={210} name="01-Boardroom-Pullback">
-        <TrimmedClip src="clips/01-boardroom-pullback.mp4" startSec={0} endSec={7} />
-        <EditorialCaption
-          text="Everyone comes to you for answers."
-          position="bottom-center"
-          delay={25}
-          duration={160}
-        />
+      {/* Rhythmic pressure pulse during overload (f: 210–390) */}
+      <Sequence from={210} durationInFrames={180}>
+        {AUDIO_LAYERS.sfxPressurePulse.enabled && (
+          <Audio src={staticFile(AUDIO_LAYERS.sfxPressurePulse.file)} volume={0.70} />
+        )}
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          ACT 1 (cont.): ISOLATION & SPATIAL PRESSURE
-          00:07–00:13 (frames 210–390) — Isolation / "Who do you ask?"
-          VO Cue 2: "But when the decision is yours… who do you ask?"
-          ------------------------------------------------------------------- */}
-      <Sequence from={210} durationInFrames={90} name="02-Pressure-Accumulation">
-        <DriftStill src="images/pressure.png" startScale={1.0} endScale={1.025} />
-        <SpatialPressureLayer />
+      {/* Subtle phone handling cue (f: 410) */}
+      <Sequence from={410} durationInFrames={60}>
+        {AUDIO_LAYERS.sfxPhoneHandling.enabled && (
+          <Audio src={staticFile(AUDIO_LAYERS.sfxPhoneHandling.file)} volume={0.65} />
+        )}
       </Sequence>
 
-      <Sequence from={300} durationInFrames={90} name="03-Solitary-CEO">
-        <DriftStill src="images/isolation.png" startScale={1.0} endScale={1.03} />
-        <EditorialCaption
-          text="When the decision is yours…"
-          subtext="Who do you ask?"
-          position="bottom-center"
-          delay={10}
-          duration={75}
-        />
+      {/* CFO pen on paper cue (f: 570) */}
+      <Sequence from={570} durationInFrames={90}>
+        {AUDIO_LAYERS.sfxPenPaper.enabled && (
+          <Audio src={staticFile(AUDIO_LAYERS.sfxPenPaper.file)} volume={0.60} />
+        )}
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          ACT 1 (cont.): THE QUESTION TRIGGERS THE BOARD
-          00:13–00:18 (frames 390–540) — Reach & type
-          VO Cue 3: "What if you didn't have to decide alone?"
-          ------------------------------------------------------------------- */}
-      <Sequence from={390} durationInFrames={75} name="04-Reach-Phone">
-        <DriftStill src="images/reach-phone.png" startScale={1.0} endScale={1.035} origin="30% 70%" />
-        <EditorialCaption
-          text="What if you didn't have to decide alone?"
-          position="bottom-center"
-          delay={10}
-          duration={60}
-        />
+      {/* Watch escapement tick cue (f: 840) */}
+      <Sequence from={840} durationInFrames={60}>
+        {AUDIO_LAYERS.sfxWatchTick.enabled && (
+          <Audio src={staticFile(AUDIO_LAYERS.sfxWatchTick.file)} volume={0.60} />
+        )}
       </Sequence>
 
-      <Sequence from={465} durationInFrames={75} name="05-Type-Phone">
-        <DriftStill src="images/type-phone.png" startScale={1.0} endScale={1.04} origin="50% 65%" />
+      {/* Living Board riser swell (f: 1050) */}
+      <Sequence from={1050} durationInFrames={120}>
+        {AUDIO_LAYERS.sfxBoardRiser.enabled && (
+          <Audio src={staticFile(AUDIO_LAYERS.sfxBoardRiser.file)} volume={0.75} />
+        )}
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          ACT 2: THE BOARD MATERIALIZES
-          00:18–00:23 (frames 540–690) — CFO reveal
-          Trim: 02-cfo-reveal.mp4 (3.2s – 8.2s, removes weak AI morph frames)
-          VO Cue 4: "One voice sees the money."
-          ------------------------------------------------------------------- */}
-      <Sequence from={540} durationInFrames={150} name="06-CFO-Reveal">
-        <TrimmedClip src="clips/02-cfo-reveal.mp4" startSec={3.2} endSec={8.2} />
-        <CharacterTag role="The CFO" focus="Financial Rigor & Risk" delay={15} duration={120} />
-        <EditorialCaption
-          text="One voice sees the money."
-          position="bottom-center"
-          delay={20}
-          duration={110}
-        />
+      {/* Branding resolved hit and long decay tail (f: 1920) */}
+      <Sequence from={1920} durationInFrames={120}>
+        {AUDIO_LAYERS.sfxBrandHit.enabled && (
+          <Audio src={staticFile(AUDIO_LAYERS.sfxBrandHit.file)} volume={0.85} />
+        )}
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          ACT 2 (cont.): THE OPERATOR
-          00:23–00:28 (frames 690–840) — Operator reveal
-          Trim: 03-operator-reveal.mp4 (3.4s – 8.4s, removes weak AI morph frames)
-          VO Cue 5: "One sees what it will take."
-          ------------------------------------------------------------------- */}
-      <Sequence from={690} durationInFrames={150} name="07-Operator-Reveal">
-        <TrimmedClip src="clips/03-operator-reveal.mp4" startSec={3.4} endSec={8.4} />
-        <CharacterTag role="The Operator" focus="Execution & Systems" delay={15} duration={120} />
-        <EditorialCaption
-          text="One sees what it will take."
-          position="bottom-center"
-          delay={20}
-          duration={110}
-        />
+      {/* ===================================================================
+          ACT 1: THE OPENING & THE WEIGHT
+          00:00–00:07 (frames 0–210) — Boardroom pullback
+          VO: "Everyone comes to you for answers." (No full subtitle displayed)
+          =================================================================== */}
+      <Sequence from={0} durationInFrames={210} name="01-Opening-Pullback">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/01-boardroom-pullback.mp4"
+            startSec={0.0}
+            endSec={7.0}
+            filter="brightness(1.0) contrast(1.04) saturate(1.0)"
+          />
+        </MasterGradedScene>
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          ACT 2 (cont.): WATCH MATCH-CUT & FUTURE YOU
-          00:28–00:34 (frames 840–1020) — Watch connection / Future You reveal
-          Builds connection via macro crop from final imagery, NO collage!
-          Trim: 04-future-you-reveal.mp4 (3.5s – 8.0s)
-          VO Cue 6: "And one remembers who you're trying to become."
-          ------------------------------------------------------------------- */}
-      <Sequence from={840} durationInFrames={45} name="08-Watch-MatchCut">
-        <WatchMatchCut />
+      {/* ===================================================================
+          ACT 1 (cont.): PRESSURE OVERLOAD
+          00:07–00:13 (frames 210–390) — New approved pressure-overload.mp4
+          Focal mask deprioritizes AI cards; anchors on CEO's psychological weight.
+          VO: "But when the decision is yours… who do you ask?"
+          =================================================================== */}
+      <Sequence from={210} durationInFrames={180} name="02-Pressure-Overload">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/pressure-overload.mp4"
+            startSec={0.5}
+            endSec={6.5}
+            filter="brightness(0.97) contrast(1.06) saturate(0.92) hue-rotate(-2deg)"
+          />
+          {/* Peripheral focus mask to deprioritize floating generated cards and anchor on CEO */}
+          <AbsoluteFill
+            style={{
+              pointerEvents: 'none',
+              background:
+                'radial-gradient(ellipse at 32% 45%, transparent 35%, rgba(3,5,10,0.62) 75%)'
+            }}
+          />
+          <PressureQuestionEmphasis />
+        </MasterGradedScene>
       </Sequence>
 
-      <Sequence from={885} durationInFrames={135} name="09-Future-You-Reveal">
-        <TrimmedClip src="clips/04-future-you-reveal.mp4" startSec={3.5} endSec={8.0} />
-        <CharacterTag role="Future You" focus="Vision & Integrity" delay={15} duration={110} />
-        <EditorialCaption
-          text="And one remembers who you're trying to become."
-          position="bottom-center"
-          delay={20}
-          duration={105}
-        />
+      {/* ===================================================================
+          ACT 1 (cont.): PHONE INTERACTION
+          00:13–00:18 (frames 390–540) — New approved phone-interaction.mp4
+          Organic OLED screen wake on touch. Cuts before WhatsApp UI appears.
+          VO: "What if you didn't have to decide alone?"
+          =================================================================== */}
+      <Sequence from={390} durationInFrames={150} name="03-Phone-Interaction">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/phone-interaction.mp4"
+            startSec={1.8}
+            endSec={6.8}
+            filter="brightness(0.98) contrast(1.05) saturate(0.95) hue-rotate(-2deg)"
+          />
+          <PhoneScreenWake />
+        </MasterGradedScene>
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          ACT 2 (cont.): FULL BOARD ASSEMBLY
-          00:34–00:38 (frames 1020–1140) — Full board assembled
-          VO Cue 7 & 8: "Not another assistant." / "Your board."
-          ------------------------------------------------------------------- */}
-      <Sequence from={1020} durationInFrames={120} name="10-Full-Board">
-        <DriftStill src="images/full-board.png" startScale={1.03} endScale={1.0} />
-        <EditorialCaption
-          text="NOT ANOTHER ASSISTANT."
-          subtext="YOUR BOARD."
-          position="bottom-center"
-          delay={12}
-          duration={95}
-        />
+      {/* ===================================================================
+          ACT 2: THE CFO REVEAL
+          00:18–00:23 (frames 540–690) — 02-cfo-reveal.mp4
+          CFO visually established FIRST (delay=45).
+          Spatial tag anchored directly over CFO (left: 760, top: 200),
+          completely clear of the CEO on the left.
+          VO: "One voice sees the money."
+          =================================================================== */}
+      <Sequence from={540} durationInFrames={150} name="04-CFO-Reveal">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/02-cfo-reveal.mp4"
+            startSec={3.2}
+            endSec={8.2}
+            filter="brightness(0.98) contrast(1.05) saturate(0.88) hue-rotate(-4deg)"
+          />
+          <SpatialCharacterTag
+            role="CFO"
+            lineage="MONEY · RISK · TRADEOFFS"
+            position={{left: 760, top: 200}}
+            delay={45}
+            duration={100}
+          />
+        </MasterGradedScene>
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          CINEMATIC PUSH INTO REALITY
-          00:38–00:40 (frames 1140–1200) — Dynamic camera push into the phone
-          ------------------------------------------------------------------- */}
-      <Sequence from={1140} durationInFrames={60} name="11-Phone-Push-Into-Reality">
-        <DriftStill src="images/type-phone.png" startScale={1.05} endScale={1.45} origin="50% 64%" />
+      {/* ===================================================================
+          ACT 2 (cont.): THE OPERATOR REVEAL
+          00:23–00:28 (frames 690–840) — 03-operator-reveal.mp4
+          Operator visually established FIRST (delay=45).
+          Anchored in Operator's territory on the far right.
+          VO: "One sees what it will take."
+          =================================================================== */}
+      <Sequence from={690} durationInFrames={150} name="05-Operator-Reveal">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/03-operator-reveal.mp4"
+            startSec={3.4}
+            endSec={8.4}
+            filter="brightness(0.98) contrast(1.05) saturate(0.90) hue-rotate(-3deg)"
+          />
+          <SpatialCharacterTag
+            role="OPERATOR"
+            lineage="EXECUTION · SYSTEMS · ACTION"
+            position={{right: 120, top: 230}}
+            delay={45}
+            duration={100}
+          />
+        </MasterGradedScene>
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          ACT 3: GENUINE PRODUCT PROOF SLOT
-          00:40–00:55 (frames 1200–1650, 15 seconds)
-          Native vertical iPhone presentation. Uncropped 9:16 in 16:9 canvas.
-          Native iPhone audio takes priority. No fabricated UI.
-          ------------------------------------------------------------------- */}
-      <Sequence from={1200} durationInFrames={450} name="12-Genuine-Product-Proof">
-        <VerticalPhoneSlot
+      {/* ===================================================================
+          ACT 2 (cont.): WATCH MACRO → FUTURE YOU
+          00:28–00:34 (frames 840–1020)
+          New watch-macro.mp4 (2.0s) match-cut into 04-future-you-reveal.mp4 (4.0s)
+          VO: "And one remembers who you're trying to become."
+          =================================================================== */}
+      <Sequence from={840} durationInFrames={60} name="06-Watch-Macro">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/watch-macro.mp4"
+            startSec={0.2}
+            endSec={2.2}
+            filter="brightness(1.01) contrast(1.08) saturate(0.94)"
+          />
+        </MasterGradedScene>
+      </Sequence>
+
+      {/* Future You visually established FIRST (delay=40).
+          Anchored directly in older gentleman's territory (left: 1100, top: 180),
+          completely separate from Operator on the right. */}
+      <Sequence from={900} durationInFrames={120} name="07-Future-You-Reveal">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/04-future-you-reveal.mp4"
+            startSec={3.5}
+            endSec={7.5}
+            filter="brightness(0.97) contrast(1.06) saturate(0.86) hue-rotate(-5deg)"
+          />
+          <SpatialCharacterTag
+            role="FUTURE YOU"
+            lineage="VISION · CONSEQUENCE · IDENTITY"
+            position={{left: 1100, top: 180}}
+            delay={40}
+            duration={75}
+          />
+        </MasterGradedScene>
+      </Sequence>
+
+      {/* ===================================================================
+          ACT 2 (cont.): LIVING BOARD
+          00:34–00:39 (frames 1020–1170) — New approved living-board.mp4
+          Normalized color to prevent orange drift.
+          VO: "Not another assistant." (pause) "Your board."
+          Editorial title appears only at the "Your Board" beat.
+          =================================================================== */}
+      <Sequence from={1020} durationInFrames={150} name="08-Living-Board">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/living-board.mp4"
+            startSec={2.5}
+            endSec={7.5}
+            filter="brightness(0.96) contrast(1.07) saturate(0.84) hue-rotate(-5deg)"
+          />
+          <LivingBoardTitle />
+        </MasterGradedScene>
+      </Sequence>
+
+      {/* ===================================================================
+          CINEMA → REAL PRODUCT TRANSITION
+          00:39–00:41 (frames 1170–1230, 2 seconds)
+          Motivated optical push into dark screen-space. Music pulls back.
+          =================================================================== */}
+      <Sequence from={1170} durationInFrames={60} name="09-Transition-To-Product">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/living-board.mp4"
+            startSec={7.5}
+            endSec={9.5}
+            filter="brightness(0.96) contrast(1.07) saturate(0.84) hue-rotate(-5deg)"
+          />
+          <AbsoluteFill
+            style={{
+              backgroundColor: '#000000',
+              opacity: interpolate(useCurrentFrame(), [20, 60], [0, 1], {
+                extrapolateRight: 'clamp'
+              })
+            }}
+          />
+        </MasterGradedScene>
+      </Sequence>
+
+      {/* ===================================================================
+          ACT 3: GENUINE iMESSAGE CONSULTATION
+          00:41–00:55 (frames 1230–1650, 14 seconds)
+          Uncropped vertical 9:16 presentation. No fake UI.
+          Native iPhone audio takes full precedence.
+          =================================================================== */}
+      <Sequence from={1230} durationInFrames={420} name="10-Genuine-Product-Proof">
+        <CleanProductProofSlot
           videoSrc={PROOF_FOOTAGE.demoVideo.enabled ? PROOF_FOOTAGE.demoVideo.file : undefined}
-          headerTitle="Genuine Product Proof"
-          headerSub="Live Multi-Agent Board Deliberation in iMessage"
+          headerBadge="Genuine Product Proof"
+          editorialSub="Multi-Agent Board Deliberation in iMessage"
         />
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          ACT 3 (cont.): PROACTIVE MORNING VERIFICATION / DONE SLOT
+      {/* ===================================================================
+          ACT 3 (cont.): PROACTIVE MORNING FOLLOW-UP / DONE SLOT
           00:55–01:00 (frames 1650–1800, 5 seconds)
-          ------------------------------------------------------------------- */}
-      <Sequence from={1650} durationInFrames={150} name="13-Proactive-Followup-Slot">
-        <VerticalPhoneSlot
+          Shows that CEO Me proactively comes back at 8:00 AM.
+          =================================================================== */}
+      <Sequence from={1650} durationInFrames={150} name="11-Proactive-Followup">
+        <CleanProductProofSlot
           videoSrc={PROOF_FOOTAGE.followupVideo.enabled ? PROOF_FOOTAGE.followupVideo.file : undefined}
-          headerTitle="Proactive Accountability"
-          headerSub="8:00 AM Follow-Up: Status DONE"
+          headerBadge="Proactive Accountability"
+          editorialSub="8:00 AM Follow-Up: Status DONE"
+          caption="IT CAME BACK."
           isFollowUp
         />
       </Sequence>
 
-      {/* -------------------------------------------------------------------
-          ACT 4: CINEMATIC PAYOFF
-          01:00–01:04 (frames 1800–1920, 4 seconds) — Return to boardroom
-          VO Cue 9: "Good decisions deserve follow-through."
-          ------------------------------------------------------------------- */}
-      <Sequence from={1800} durationInFrames={120} name="14-Payoff">
-        <DriftStill src="images/full-board.png" startScale={1.0} endScale={1.035} origin="50% 50%" />
-        <EditorialCaption
-          text="GOOD DECISIONS DESERVE FOLLOW-THROUGH."
-          position="bottom-center"
-          delay={12}
-          duration={95}
-        />
+      {/* ===================================================================
+          ACT 4: RESOLUTION / PAYOFF
+          01:00–01:04 (frames 1800–1920, 4 seconds)
+          Different section of living-board.mp4 (7.5s–10.0s).
+          Consensus beat. VO: "Good decisions deserve follow-through."
+          =================================================================== */}
+      <Sequence from={1800} durationInFrames={120} name="12-Payoff">
+        <MasterGradedScene>
+          <MotionClip
+            src="clips/living-board.mp4"
+            startSec={7.5}
+            endSec={10.0}
+            filter="brightness(0.96) contrast(1.07) saturate(0.84) hue-rotate(-5deg)"
+          />
+          <AbsoluteFill
+            style={{
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              paddingBottom: 85,
+              pointerEvents: 'none',
+              zIndex: 50
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 34,
+                fontWeight: 800,
+                color: '#FFFFFF',
+                letterSpacing: '5px',
+                textAlign: 'center',
+                textTransform: 'uppercase',
+                textShadow: '0 4px 30px rgba(0,0,0,0.95), 0 0 30px rgba(226,160,82,0.35)'
+              }}
+            >
+              GOOD DECISIONS DESERVE FOLLOW-THROUGH.
+            </div>
+          </AbsoluteFill>
+        </MasterGradedScene>
       </Sequence>
 
-      {/* -------------------------------------------------------------------
+      {/* ===================================================================
           BRAND ENDING
           01:04–01:08 (frames 1920–2040, 4 seconds)
-          CEO ME → YOUR PERSONAL BOARD OF DIRECTORS → IN iMESSAGE. →
-          Built with Photon → DECIDE. COMMIT. BECOME.
-          ------------------------------------------------------------------- */}
-      <Sequence from={1920} durationInFrames={120} name="15-Brand-Ending">
-        <BrandEnding />
+          CEO ME → YOUR PERSONAL BOARD OF DIRECTORS IN iMESSAGE. →
+          Built with Photon → DECIDE · COMMIT · BECOME
+          =================================================================== */}
+      <Sequence from={1920} durationInFrames={120} name="13-Brand-Ending">
+        <RefinedBrandEnding />
       </Sequence>
     </AbsoluteFill>
   );

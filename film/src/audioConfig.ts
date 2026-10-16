@@ -108,49 +108,49 @@ export const AUDIO_LAYERS: Record<string, AudioLayerSettings> = {
   roomTone: {
     enabled: true,
     file: 'audio/room-tone.wav',
-    baseVolume: 0.22,
+    baseVolume: 0.35,
     description: 'Subtle boardroom HVAC room presence'
   },
   score: {
     enabled: true,
     file: 'audio/score.mp3',
-    baseVolume: 0.38,
-    description: 'Cinematic tension score (ducks to 0.04 during proof)'
+    baseVolume: 0.68,
+    description: 'Cinematic tension score (ducks to 0.06 during proof)'
   },
   sfxPressurePulse: {
     enabled: true,
     file: 'audio/sfx-pressure-pulse.wav',
-    baseVolume: 0.45,
+    baseVolume: 0.70,
     description: 'Low 48Hz rhythmic heartbeat pulse during overload'
   },
   sfxPhoneHandling: {
     enabled: true,
     file: 'audio/sfx-phone-handling.wav',
-    baseVolume: 0.30,
+    baseVolume: 0.65,
     description: 'Subtle desk contact and phone pickup'
   },
   sfxPenPaper: {
     enabled: true,
     file: 'audio/sfx-pen-paper.wav',
-    baseVolume: 0.28,
+    baseVolume: 0.60,
     description: 'Fountain pen write cue on CFO reveal'
   },
   sfxWatchTick: {
     enabled: true,
     file: 'audio/sfx-watch-tick.wav',
-    baseVolume: 0.32,
+    baseVolume: 0.60,
     description: 'Mechanical escapement tick on watch macro'
   },
   sfxBoardRiser: {
     enabled: true,
     file: 'audio/sfx-board-riser.wav',
-    baseVolume: 0.40,
+    baseVolume: 0.75,
     description: 'Controlled swell into full Board reveal'
   },
   sfxBrandHit: {
     enabled: true,
     file: 'audio/sfx-brand-hit.wav',
-    baseVolume: 0.55,
+    baseVolume: 0.85,
     description: 'Resonant resolved hit on brand lockup'
   }
 };
