@@ -1,9 +1,16 @@
 /**
- * CEO Me Film — Audio & Narration Architecture
+ * CEO Me Film V3 — Audio & Narration Architecture
  *
- * This module defines the multi-tier audio mixing architecture and timed VO cues.
- * Optional audio assets fail gracefully by checking availability flags before
- * attempting to mount Remotion <Audio> elements, preventing 404 render failures.
+ * Implements full temporary production audio for review:
+ * - Boardroom room tone (continuous presence)
+ * - Restrained cinematic score (with ducking during proof)
+ * - Pressure overload heartbeat pulse
+ * - Subtle phone handling cue
+ * - CFO pen on paper scratch cue
+ * - Mechanical watch tick cue
+ * - Controlled rise into full Board
+ * - Cinematic payoff return
+ * - Final resolved branding hit & tail
  */
 
 export interface VOCue {
@@ -22,63 +29,63 @@ export const VO_CUES: VOCue[] = [
     durationFrames: 150,
     timecode: '00:01–00:06',
     script: 'Everyone comes to you for answers.',
-    scene: 'Act 1: Boardroom pullback / pressure'
+    scene: 'Act 1: Opening / Boardroom Pullback'
   },
   {
     id: 'vo-02',
-    fromFrame: 225,
-    durationFrames: 150,
-    timecode: '00:07.5–00:12.5',
+    fromFrame: 290,
+    durationFrames: 100,
+    timecode: '00:09.6–00:13.0',
     script: 'But when the decision is yours… who do you ask?',
-    scene: 'Act 1: Isolation / Dilemma'
+    scene: 'Act 1: Pressure Overload / Dilemma'
   },
   {
     id: 'vo-03',
-    fromFrame: 395,
-    durationFrames: 135,
-    timecode: '00:13.2–00:17.7',
+    fromFrame: 400,
+    durationFrames: 130,
+    timecode: '00:13.3–00:17.6',
     script: "What if you didn't have to decide alone?",
-    scene: 'Act 1: Reach & Type / Phone trigger'
+    scene: 'Act 1: Phone Interaction / Question Trigger'
   },
   {
     id: 'vo-04',
-    fromFrame: 545,
-    durationFrames: 135,
-    timecode: '00:18.2–00:22.7',
+    fromFrame: 560,
+    durationFrames: 120,
+    timecode: '00:18.6–00:22.6',
     script: 'One voice sees the money.',
     scene: 'Act 2: CFO Reveal'
   },
   {
     id: 'vo-05',
-    fromFrame: 695,
-    durationFrames: 135,
-    timecode: '00:23.2–00:27.7',
+    fromFrame: 710,
+    durationFrames: 120,
+    timecode: '00:23.6–00:27.6',
     script: 'One sees what it will take.',
     scene: 'Act 2: Operator Reveal'
   },
   {
     id: 'vo-06',
-    fromFrame: 865,
-    durationFrames: 145,
-    timecode: '00:28.8–00:33.7',
+    fromFrame: 910,
+    durationFrames: 105,
+    timecode: '00:30.3–00:33.8',
     script: "And one remembers who you're trying to become.",
-    scene: 'Act 2: Watch Connection / Future You'
+    scene: 'Act 2: Watch Macro & Future You Reveal'
   },
   {
     id: 'vo-07',
-    fromFrame: 1025,
-    durationFrames: 50,
-    timecode: '00:34.2–00:35.8',
+    fromFrame: 1035,
+    durationFrames: 45,
+    timecode: '00:34.5–00:36.0',
     script: 'Not another assistant.',
-    scene: 'Act 2: Full Board Assembly'
+    scene: 'Act 2: Living Board'
   },
   {
     id: 'vo-08',
-    fromFrame: 1080,
-    durationFrames: 55,
-    timecode: '00:36.0–00:37.8',
+    fromFrame: 1090,
+    durationFrames: 60,
+    timecode: '00:36.3–00:38.3',
     script: 'Your board.',
-    scene: 'Act 2: Full Board Lock-in'
+    scene: 'Act 2: Living Board Lock-in'
   },
   {
     id: 'vo-09',
@@ -86,14 +93,10 @@ export const VO_CUES: VOCue[] = [
     durationFrames: 110,
     timecode: '01:00.2–01:03.8',
     script: 'Good decisions deserve follow-through.',
-    scene: 'Act 4: Cinematic Payoff'
+    scene: 'Act 4: Payoff / Resolution'
   }
 ];
 
-/**
- * Audio Track Configuration
- * Set enabled to true once assets are dropped into public/audio/
- */
 export interface AudioLayerSettings {
   enabled: boolean;
   file: string;
@@ -103,51 +106,66 @@ export interface AudioLayerSettings {
 
 export const AUDIO_LAYERS: Record<string, AudioLayerSettings> = {
   roomTone: {
-    enabled: false,
+    enabled: true,
     file: 'audio/room-tone.wav',
-    baseVolume: 0.18,
-    description: 'Subtle low boardroom HVAC hum and room presence'
+    baseVolume: 0.22,
+    description: 'Subtle boardroom HVAC room presence'
   },
   score: {
-    enabled: false,
+    enabled: true,
     file: 'audio/score.mp3',
-    baseVolume: 0.35,
-    description: 'Cinematic tension score; ducks during genuine iPhone proof'
+    baseVolume: 0.38,
+    description: 'Cinematic tension score (ducks to 0.04 during proof)'
   },
-  voiceover: {
-    enabled: false,
-    file: 'audio/narration-master.wav',
-    baseVolume: 0.95,
-    description: 'Master voiceover track matching VO_CUES'
+  sfxPressurePulse: {
+    enabled: true,
+    file: 'audio/sfx-pressure-pulse.wav',
+    baseVolume: 0.45,
+    description: 'Low 48Hz rhythmic heartbeat pulse during overload'
   },
-  sfxSubDrop: {
-    enabled: false,
-    file: 'audio/sfx-sub-drop.wav',
+  sfxPhoneHandling: {
+    enabled: true,
+    file: 'audio/sfx-phone-handling.wav',
+    baseVolume: 0.30,
+    description: 'Subtle desk contact and phone pickup'
+  },
+  sfxPenPaper: {
+    enabled: true,
+    file: 'audio/sfx-pen-paper.wav',
+    baseVolume: 0.28,
+    description: 'Fountain pen write cue on CFO reveal'
+  },
+  sfxWatchTick: {
+    enabled: true,
+    file: 'audio/sfx-watch-tick.wav',
+    baseVolume: 0.32,
+    description: 'Mechanical escapement tick on watch macro'
+  },
+  sfxBoardRiser: {
+    enabled: true,
+    file: 'audio/sfx-board-riser.wav',
     baseVolume: 0.40,
-    description: 'Low-frequency cinematic impact on board reveals'
+    description: 'Controlled swell into full Board reveal'
   },
-  sfxPhoneTap: {
-    enabled: false,
-    file: 'audio/sfx-phone-tap.wav',
-    baseVolume: 0.25,
-    description: 'Crisp haptic tap on reach/type sequence'
+  sfxBrandHit: {
+    enabled: true,
+    file: 'audio/sfx-brand-hit.wav',
+    baseVolume: 0.55,
+    description: 'Resonant resolved hit on brand lockup'
   }
 };
 
-/**
- * Product Proof Footage Settings
- */
 export const PROOF_FOOTAGE = {
   demoVideo: {
-    enabled: false, // Set to true once public/product-proof/iphone-demo.mp4 is supplied
+    enabled: false, // Automatically mounts when public/product-proof/iphone-demo.mp4 is supplied
     file: 'product-proof/iphone-demo.mp4',
     volume: 1.0,
-    description: 'Genuine iPhone screen recording with native UI audio'
+    description: 'Genuine iPhone consultation footage'
   },
   followupVideo: {
-    enabled: false, // Set to true once public/product-proof/iphone-followup.mp4 is supplied
+    enabled: false, // Automatically mounts when public/product-proof/iphone-followup.mp4 is supplied
     file: 'product-proof/iphone-followup.mp4',
     volume: 1.0,
-    description: 'Genuine morning 8:00 AM proactive check-in recording'
+    description: 'Genuine proactive 8:00 AM check-in footage'
   }
 };
