@@ -1,5 +1,10 @@
 # CEO Me
 
+![Photon](https://img.shields.io/badge/Built%20with-Photon-635BFF?style=for-the-badge)
+![iMessage](https://img.shields.io/badge/Interface-iMessage-34C759?style=for-the-badge)
+![TypeScript](https://img.shields.io/badge/TypeScript-Node.js-3178C6?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Working%20E2E-00A67E?style=for-the-badge)
+
 > **Your personal board of directors in iMessage.**  
 > Turn a messy decision into a verdict, a concrete next move, a deadline, and a proactive accountability check — without leaving Messages.
 
@@ -23,7 +28,7 @@ The Board does not stop at advice. If you accept its recommendation, CEO Me turn
 VENT → CONVENE → DECIDE → COMMIT → RETURN → REMEMBER
 ```
 
-## What works today
+## ✦ What works today
 
 CEO Me is a working Photon/iMessage agent, not a simulated chat interface.
 
@@ -40,7 +45,7 @@ CEO Me is a working Photon/iMessage agent, not a simulated chat interface.
 
 The core rule is simple: **CEO Me never claims an action happened unless the application actually performed and recorded it.**
 
-## Why iMessage?
+## 💬 Why iMessage?
 
 CEO Me is deliberately not a dashboard.
 
@@ -97,7 +102,7 @@ BLOCKED
 ABANDONED
 ```
 
-## Architecture
+## ⚙️ Architecture
 
 ```text
                      ┌─────────────────────┐
@@ -173,7 +178,7 @@ AWAITING_OUTCOME
 
 The router also handles explanations, deadline changes, commitment modifications, off-script replies, small talk, and recovery from ambiguous language.
 
-## Reliability and safety boundaries
+## 🛡️ Reliability and proof boundaries
 
 CEO Me is intentionally strict about proof:
 
@@ -187,7 +192,7 @@ CEO Me is intentionally strict about proof:
 - model-produced structured outputs are validated before use;
 - deterministic fallbacks keep core flows working when an optional reasoning provider is unavailable.
 
-## Tests
+## ✅ Tests
 
 The test suite covers the original decision/commitment loop plus the real conversation state machine, deadline handling, proactive follow-up behavior, off-script recovery, Board quality validation, deterministic routing, and optional structured-reasoning fallbacks.
 
@@ -257,7 +262,7 @@ data/       local runtime state (gitignored)
 
 The `film/` directory is submission/demo production material. It is separate from the application runtime; you do **not** need it to run CEO Me.
 
-## Built for Photon Muse
+## ✨ Built for Photon Muse
 
 CEO Me explores a slightly unhinged but useful premise:
 
