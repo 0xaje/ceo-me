@@ -157,13 +157,13 @@ export const AUDIO_LAYERS: Record<string, AudioLayerSettings> = {
 
 export const PROOF_FOOTAGE = {
   demoVideo: {
-    enabled: false, // Automatically mounts when public/product-proof/iphone-demo.mp4 is supplied
+    enabled: true, // Automatically mounts when public/product-proof/iphone-demo.mp4 is supplied
     file: 'product-proof/iphone-demo.mp4',
     volume: 1.0,
     description: 'Genuine iPhone consultation footage'
   },
   followupVideo: {
-    enabled: false, // Automatically mounts when public/product-proof/iphone-followup.mp4 is supplied
+    enabled: true, // Automatically mounts when public/product-proof/iphone-followup.mp4 is supplied
     file: 'product-proof/iphone-followup.mp4',
     volume: 1.0,
     description: 'Genuine deadline-triggered proactive follow-up footage'
