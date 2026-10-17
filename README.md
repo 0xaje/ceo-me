@@ -256,11 +256,8 @@ See `.env.example` for the optional configuration.
 ```text
 src/        CEO Me application
 tests/      product and reliability tests
-film/       demo-film production project and media
 data/       local runtime state (gitignored)
 ```
-
-The `film/` directory is submission/demo production material. It is separate from the application runtime; you do **not** need it to run CEO Me.
 
 ## ✨ Built for Photon Muse
 
